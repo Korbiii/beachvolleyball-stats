@@ -180,7 +180,7 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
 .h-score.win-a{color:var(--ocean)}
 .h-score.win-b{color:var(--coral-dark)}
 .h-meta{font-size:12px;color:var(--muted)}
-.stat-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat-summary{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .stat-chip{display:grid;gap:2px;justify-items:center;padding:10px 0;border:1px solid var(--line);border-radius:14px;background:#fdfaf2}
 .stat-chip b{font-size:19px;font-weight:900;color:var(--ocean);font-variant-numeric:tabular-nums}
 .stat-chip span{font-size:11.5px;color:var(--muted);font-weight:700}
@@ -193,6 +193,28 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
 .sr-name .sr-sub{display:block;font-size:11.5px;color:var(--muted);font-weight:500}
 .sr-val{font-weight:900;color:var(--ocean);font-size:14px;font-variant-numeric:tabular-nums;text-align:right}
 .stat-empty{color:var(--muted);font-size:12.5px;padding:8px 0 0;margin:0}
+.gender-toggle{display:flex;gap:8px}
+.row-form .gender-toggle{flex:1 1 100%}
+.gt-opt{
+  border:1.5px solid #d9cdb4;background:#fbf3e0;color:var(--ink);
+  border-radius:12px;min-height:44px;padding:0 16px;font-size:15px;font-weight:700;cursor:pointer;
+  transition:background .15s,color .15s;
+}
+.gt-opt.on{background:var(--ocean);border-color:var(--ocean);color:#fff}
+.p-name{display:flex;align-items:center;gap:6px}
+.p-nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gender-cyc{
+  border:0;background:var(--ocean-soft);color:var(--ocean);border-radius:8px;
+  width:26px;height:26px;font-size:15px;line-height:1;cursor:pointer;flex:0 0 auto;padding:0;
+}
+.p-sub{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.ps-pill{font-size:10.5px;font-weight:700;color:var(--ink);background:#f1e7d2;border-radius:6px;padding:2px 6px;display:inline-flex;gap:4px;align-items:baseline}
+.ps-pill i{font-style:normal;color:var(--muted);font-size:9.5px;font-weight:700}
+.ps-pill.hl{background:var(--ocean-soft);color:var(--ocean)}
+.mix-badge{
+  display:inline-block;margin-left:6px;font-size:10px;font-weight:800;color:#7a3fa0;
+  background:#f3e9fb;border-radius:6px;padding:1px 6px;vertical-align:middle;
+}
 .tabbar{
   position:fixed;left:0;right:0;bottom:0;display:flex;z-index:50;
   background:#fffdf8;border-top:1px solid var(--line);box-shadow:0 6px 0 rgba(23,52,68,.08);
@@ -231,6 +253,10 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
       <h2>Spieler anlegen</h2>
       <form id="add-player-form" class="row-form" autocomplete="off">
         <input id="new-player-name" type="text" maxlength="24" placeholder="Name eingeben…" aria-label="Spielername">
+        <div class="gender-toggle" id="new-player-gender" role="radiogroup" aria-label="Geschlecht (optional)">
+          <button type="button" class="gt-opt" data-gender="w" aria-label="Weiblich">♀ W</button>
+          <button type="button" class="gt-opt" data-gender="m" aria-label="Männlich">♂ M</button>
+        </div>
         <button class="btn btn-accent" type="submit">＋ Hinzufügen</button>
       </form>
     </div>
@@ -285,15 +311,20 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
         <div class="stat-chip"><b id="st-players">0</b><span>Spieler</span></div>
         <div class="stat-chip"><b id="st-matches">0</b><span>Spiele</span></div>
         <div class="stat-chip"><b id="st-elo">–</b><span>Ø Elo</span></div>
+        <div class="stat-chip"><b id="st-mixed">0</b><span>⚧ gemischt</span></div>
       </div>
       <h3 class="stat-h3">🏆 Meiste Siege</h3>
       <div id="stat-wins" class="stat-list"></div>
       <h3 class="stat-h3">👫 Bestes Team</h3>
       <div id="stat-team" class="stat-list"></div>
+      <h3 class="stat-h3">🔥 Längste Siegesserie</h3>
+      <div id="stat-streak" class="stat-list"></div>
       <h3 class="stat-h3">🚀 Höchstes Ergebnis</h3>
       <div id="stat-highscore" class="stat-list"></div>
       <h3 class="stat-h3">💪 Größter Sieg (Punktedifferenz)</h3>
       <div id="stat-margin" class="stat-list"></div>
+      <h3 class="stat-h3">⚔️ Matchups</h3>
+      <div id="stat-matchups" class="stat-list"></div>
     </div>
     <div class="card">
       <h2>Elo-Ranking</h2>
@@ -355,6 +386,57 @@ function persist(){
 }
 function fmtElo(v){return Math.round(v).toLocaleString('de-DE');}
 
+var newGender=null;
+function genderOf(id){var p=state.players.find(function(x){return x.id===id;});return p?p.gender:null;}
+function teamMixed(ids){
+  var hw=false,hm=false;
+  ids.forEach(function(id){var g=genderOf(id);if(g==='w')hw=true;else if(g==='m')hm=true;});
+  return hw&&hm;
+}
+function matchMixed(m){return teamMixed(m.teamA)||teamMixed(m.teamB);}
+function computePlayerStats(){
+  var todayStart=new Date();todayStart.setHours(0,0,0,0);
+  var res={};
+  state.players.forEach(function(p){res[p.id]={w:0,l:0,g:0,today:0,pts:0};});
+  state.matches.forEach(function(m){
+    var isToday=!!m.ts&&new Date(m.ts)>=todayStart;
+    var aWon=m.scoreA>m.scoreB,bWon=m.scoreB>m.scoreA;
+    [m.teamA,m.teamB].forEach(function(team,idx){
+      var won=idx===0?aWon:bWon,pts=idx===0?m.scoreA:m.scoreB;
+      team.forEach(function(id){
+        var r=res[id];if(!r)return;
+        r.g++;r.pts+=pts;
+        if(isToday)r.today++;
+        if(won)r.w++;else if(aWon||bWon)r.l++;
+      });
+    });
+  });
+  return res;
+}
+function longestStreaks(){
+  var pSt={},tSt={};
+  state.players.forEach(function(p){pSt[p.id]={len:0,best:0};});
+  var sorted=state.matches.slice().sort(function(x,y){return (x.ts||0)-(y.ts||0);});
+  sorted.forEach(function(m){
+    var aWon=m.scoreA>m.scoreB,bWon=m.scoreB>m.scoreA;
+    var wonMap={};
+    m.teamA.forEach(function(id){wonMap[id]=aWon;});
+    m.teamB.forEach(function(id){wonMap[id]=bWon;});
+    Object.keys(wonMap).forEach(function(id){
+      var st=pSt[id];if(!st)return;
+      if(wonMap[id]){st.len++;if(st.len>st.best)st.best=st.len;}
+      else{st.len=0;}
+    });
+    [[m.teamA,aWon],[m.teamB,bWon]].forEach(function(pair){
+      var ids=pair[0],won=pair[1],key=ids.slice().sort().join('|');
+      if(!tSt[key])tSt[key]={len:0,best:0};
+      var st=tSt[key];
+      if(won){st.len++;if(st.len>st.best)st.best=st.len;}else{st.len=0;}
+    });
+  });
+  return {p:pSt,t:tSt};
+}
+
 function toast(msg){
   var t=$('.toast');
   t.textContent=msg;t.classList.add('show');
@@ -367,14 +449,31 @@ function renderPlayerList(){
   var ul=$('#player-list');ul.textContent='';
   $('#player-count').textContent=state.players.length?('('+state.players.length+')'):'';
   $('.players-empty').style.display=state.players.length?'none':'';
+  var stats=computePlayerStats();
   var list=state.players.slice().sort(function(a,b){return a.name.localeCompare(b.name,'de');});
   list.forEach(function(p){
     var li=document.createElement('li');li.className='player-row';
     var av=document.createElement('span');av.className='avatar';
     av.textContent=p.name.charAt(0).toUpperCase();
     var meta=document.createElement('div');meta.className='p-meta';
-    var nm=document.createElement('div');nm.className='p-name';nm.textContent=p.name;
-    var sub=document.createElement('div');sub.className='p-sub';sub.textContent='Elo '+fmtElo(p.elo);
+    var nm=document.createElement('div');nm.className='p-name';
+    var nmt=document.createElement('span');nmt.className='p-nm';nmt.textContent=p.name;
+    var gc=document.createElement('button');
+    gc.type='button';gc.className='gender-cyc';
+    gc.setAttribute('aria-label','Geschlecht wechseln ('+(p.gender==='w'?'weiblich':(p.gender==='m'?'männlich':'nicht gesetzt'))+')');
+    gc.textContent=p.gender==='w'?'♀':(p.gender==='m'?'♂':'–');
+    gc.addEventListener('click',function(){cycleGender(p.id);});
+    nm.appendChild(nmt);nm.appendChild(gc);
+    var sub=document.createElement('div');sub.className='p-sub';
+    var s=stats[p.id]||{w:0,l:0,g:0,today:0,pts:0};
+    [['Siege',s.w,false],['Niederl.',s.l,false],['Spiele',s.g,false],['heute',s.today,true],['Punkte',s.pts,true]].forEach(function(pp){
+      var pill=document.createElement('span');
+      pill.className='ps-pill'+(pp[2]?' hl':'');
+      var lbl=document.createElement('i');lbl.textContent=pp[0];
+      pill.appendChild(lbl);
+      pill.appendChild(document.createTextNode(String(pp[1])));
+      sub.appendChild(pill);
+    });
     meta.appendChild(nm);meta.appendChild(sub);
     var elo=document.createElement('div');elo.className='p-elo';elo.textContent=fmtElo(p.elo);
     var del=document.createElement('button');
@@ -489,6 +588,10 @@ function renderHistory(){
     li.appendChild(line);
     var meta=document.createElement('div');meta.className='h-meta';
     meta.textContent=(m.ts?fmtDate(m.ts):'Uhrzeit unbekannt')+' · Sieger: '+(winA?'Team A':(winB?'Team B':'Unentschieden'));
+    if(matchMixed(m)){
+      var mb=document.createElement('span');mb.className='mix-badge';mb.textContent='⚧ gemischt';
+      meta.appendChild(mb);
+    }
     li.appendChild(meta);
     ul.appendChild(li);
   });
@@ -523,6 +626,8 @@ function renderStats(){
   $('#st-matches').textContent=String(state.matches.length);
   var sum=0;state.players.forEach(function(p){sum+=p.elo;});
   $('#st-elo').textContent=state.players.length?fmtElo(sum/state.players.length):'–';
+  var mixedCount=0;state.matches.forEach(function(m){if(matchMixed(m))mixedCount++;});
+  $('#st-mixed').textContent=String(mixedCount);
 
   /* Meiste Siege (Spieler) */
   var winCount={};
@@ -588,6 +693,76 @@ function renderStats(){
     var wName2=names(wa2?mg.teamA:mg.teamB),lName2=names(wa2?mg.teamB:mg.teamA);
     gbox.appendChild(mkStatRow('💪',false,wName2,'vs '+lName2+' · '+(mg.ts?fmtDate(mg.ts):'Zeit unbekannt'),'+'+String(big.d)));
   }
+
+  /* Längste Siegesserie (Spieler + Team) */
+  var streaks=longestStreaks();
+  var sbox=$('#stat-streak');sbox.textContent='';
+  if(state.matches.length===0){sbox.appendChild(statEmpty(none));}
+  else{
+    var bestP=null,bestN=0;
+    state.players.forEach(function(p){
+      var st=streaks.p[p.id];if(!st)return;
+      if(st.best>bestN||(st.best===bestN&&(!bestP||p.name<bestP.name))){bestN=st.best;bestP=p;}
+    });
+    var bestT=null,bestTN=0;
+    Object.keys(streaks.t).forEach(function(key){
+      var st=streaks.t[key];if(!st)return;
+      if(st.best>bestTN||(st.best===bestTN&&bestT&&key<bestT)){bestTN=st.best;bestT=key;}
+    });
+    sbox.appendChild(mkStatRow('🔥',false,bestN>0?bestP.name:'–',null,bestN>0?(bestN+' in Folge'):'–'));
+    sbox.appendChild(mkStatRow('⚡',false,bestTN>0?names(bestT.split('|')):'–',null,bestTN>0?(bestTN+' in Folge'):'–'));
+  }
+
+  /* Matchups – am seltensten gespielt & noch komplett fehlend */
+  var mbox=$('#stat-matchups');mbox.textContent='';
+  if(state.matches.length===0||state.players.length<4){mbox.appendChild(statEmpty(none));}
+  else{
+    var ids=state.players.map(function(p){return p.id;});
+    var pairs=[];
+    for(var i=0;i<ids.length;i++)for(var j=i+1;j<ids.length;j++)pairs.push([ids[i],ids[j]].sort().join('|'));
+    function disjoint(a,b){
+      var sa=a.split('|'),sb=b.split('|');
+      return sa[0]!==sb[0]&&sa[0]!==sb[1]&&sa[1]!==sb[0]&&sa[1]!==sb[1];
+    }
+    var played={};
+    state.matches.forEach(function(m){
+      var a=m.teamA.slice().sort().join('|');
+      var b=m.teamB.slice().sort().join('|');
+      var key=[a,b].sort().join('~');
+      played[key]=(played[key]||0)+1;
+    });
+    var missing=[];
+    for(var x=0;x<pairs.length;x++)for(var y=x+1;y<pairs.length;y++){
+      var pa=pairs[x],pb=pairs[y];
+      if(!disjoint(pa,pb))continue;
+      var key=[pa,pb].sort().join('~');
+      if(!played[key])missing.push(key);
+    }
+    function muName(key){
+      var two=key.split('~');
+      return names(two[0].split('|'))+' vs '+names(two[1].split('|'));
+    }
+    var totalMatchups=Object.keys(played).length+missing.length;
+    mbox.appendChild(statEmpty('Gesamt: '+Object.keys(played).length+' von '+totalMatchups+' möglichen Matchups gespielt.'));
+    var min=null,least=[];
+    Object.keys(played).forEach(function(k){
+      if(min===null||played[k]<min){min=played[k];least=[k];}
+      else if(played[k]===min){least.push(k);}
+    });
+    if(least.length){
+      mbox.appendChild(statEmpty('Am seltensten ('+min+'×):'));
+      least.slice(0,5).forEach(function(k){
+        mbox.appendChild(mkStatRow('🎲',false,muName(k),null,min+'×'));
+      });
+    }
+    if(missing.length){
+      mbox.appendChild(statEmpty('Noch nie gespielt:'));
+      missing.slice(0,5).forEach(function(k){
+        mbox.appendChild(mkStatRow('🆕',false,muName(k),null,'0×'));
+      });
+      if(missing.length>5){mbox.appendChild(statEmpty('… und '+(missing.length-5)+' weitere fehlende Matchups.'));}
+    }
+  }
 }
 
 function renderAll(){
@@ -599,8 +774,9 @@ function addPlayer(e){
   var input=$('#new-player-name');
   var name=input.value.trim().replace(/\s+/g,' ');
   if(!name){input.focus();toast('Bitte einen Namen eingeben');return;}
-  state.players.push({id:uid(),name:name,elo:1500});
+  state.players.push({id:uid(),name:name,elo:1500,gender:newGender});
   persist();input.value='';renderAll();
+  resetGenderToggle();
   toast('🏐 '+name+' ist dabei (Elo 1500)');
 }
 
@@ -726,6 +902,24 @@ for(var si=0;si<stepBtns.length;si++){
 document.addEventListener('pointerup',pressEnd);
 document.addEventListener('pointercancel',pressEnd);
 document.addEventListener('pointerleave',pressEnd);
+function setGenderToggle(g){
+  newGender=g;
+  var opts=$('#new-player-gender').children;
+  for(var gi=0;gi<opts.length;gi++){
+    opts[gi].className='gt-opt'+(opts[gi].dataset.gender===g?' on':'');
+  }
+}
+function resetGenderToggle(){setGenderToggle(null);}
+function cycleGender(id){
+  var p=state.players.find(function(x){return x.id===id;});
+  if(!p)return;
+  p.gender=p.gender==='w'?'m':(p.gender==='m'?null:'w');
+  persist();renderAll();
+}
+var gtOpts=document.querySelectorAll('.gt-opt');
+for(var gi2=0;gi2<gtOpts.length;gi2++){
+  gtOpts[gi2].addEventListener('click',function(){setGenderToggle(this.dataset.gender);});
+}
 $('#save-match').addEventListener('click',saveMatch);
 var tabs=document.querySelectorAll('.tab');
 for(var t=0;t<tabs.length;t++){
