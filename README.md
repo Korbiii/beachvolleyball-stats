@@ -4,6 +4,7 @@ Eine schlanke, offline-fähige Web-App zum Festhalten eures Beachvolleyball-Urla
 
 - 🏐 **Spieler** anlegen (ein Tap, mit optionalem ♀/♂-Geschlecht) – mit Bilanz pro Spieler: Siege, Niederlagen, Spiele gesamt, Spiele heute, Gesamtpunkte
 - ⚔️ **Neues Match** eintragen – 4 Spieler-Chips antippen (erste zwei = Team A, nächste zwei = Team B), Punkte per **Voreinstellung (15–21)** oder −/＋-Stepper wählen, speichern; „gemischt“ (⚧) wird aus den Geschlechtern automatisch erkannt
+- 🏖️ **Events** – ordne Matches Events zu (z. B. *Beachvolleyballurlaub*, *Casual Play*); Historie & Statistik lassen sich pro Event filtern
 - 🏆 **Statistik** – Bilanz aus allen Matches: meiste Siege, bestes Team, längste Siegesserie, höchstes Ergebnis, größter Sieg, seltenste & fehlende Matchups
 - 📜 **Historie** – alle gespeicherten Matches mit Punktestand, Datum und Sieger
 - 🏆 **Elo-Ranking** – aktualisiert sich sofort nach jedem Match
