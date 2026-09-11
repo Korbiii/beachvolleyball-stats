@@ -21,7 +21,7 @@ Eine schlanke, offline-fähige Web-App zum Festhalten eures Beachvolleyball-Urla
 | Weg | Ergebnis |
 |---|---|
 | `index.html` lokal im Handy-Browser öffnen | Volle Funktion + Speicherung, ohne Hosten |
-| Dieses Repo auf HTTPS-Hosting (GitHub Pages, Netlify, …) | „Zum Startbildschirm hinzufügen“/„Installieren“, **offline** nutzbar |
+| **GitHub Pages** (diese Repo-Seite) | 🔴 LIVE: **https://Korbiii.github.io/beachvolleyball-stats/** – „Zum Startbildschirm hinzufügen“/„Installieren“ (Android-PWA), **offline** nutzbar |
 
 > Hinweis: Service Worker & Manifest benötigen `https` (oder localhost). Als lokale `file://`-Datei läuft die App trotzdem komplett.
 

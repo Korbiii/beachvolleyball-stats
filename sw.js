@@ -1,7 +1,7 @@
 /* Beachvolleyball Stats – minimaler Service Worker für Offline-Nutzung.
    Strategie: offline-first – gecachte Antworten sofort, ansonsten Netz, dann cachen. */
-var CACHE = 'bv-stats-v1';
-var ASSETS = ['./', './index.html', './manifest.json', './icon.svg'];
+var CACHE = 'bv-stats-v2';
+var ASSETS = ['./', './index.html', './manifest.json', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(
