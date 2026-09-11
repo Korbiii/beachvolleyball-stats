@@ -180,6 +180,19 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
 .h-score.win-a{color:var(--ocean)}
 .h-score.win-b{color:var(--coral-dark)}
 .h-meta{font-size:12px;color:var(--muted)}
+.stat-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat-chip{display:grid;gap:2px;justify-items:center;padding:10px 0;border:1px solid var(--line);border-radius:14px;background:#fdfaf2}
+.stat-chip b{font-size:19px;font-weight:900;color:var(--ocean);font-variant-numeric:tabular-nums}
+.stat-chip span{font-size:11.5px;color:var(--muted);font-weight:700}
+.stat-h3{font-size:13.5px;font-weight:800;margin:16px 0 6px;color:var(--ink)}
+.stat-list{display:flex;flex-direction:column;gap:6px}
+.stat-row{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#fdfaf2;border:1px solid var(--line);border-radius:12px}
+.sr-rank{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;background:#f1e7d2;font-weight:800;font-size:12.5px;flex:0 0 auto}
+.sr-rank.medal{background:#fff4dc}
+.sr-name{flex:1;min-width:0;font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-name .sr-sub{display:block;font-size:11.5px;color:var(--muted);font-weight:500}
+.sr-val{font-weight:900;color:var(--ocean);font-size:14px;font-variant-numeric:tabular-nums;text-align:right}
+.stat-empty{color:var(--muted);font-size:12.5px;padding:8px 0 0;margin:0}
 .tabbar{
   position:fixed;left:0;right:0;bottom:0;display:flex;z-index:50;
   background:#fffdf8;border-top:1px solid var(--line);box-shadow:0 6px 0 rgba(23,52,68,.08);
@@ -266,6 +279,22 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
   </section>
 
   <section class="screen" id="screen-ranking">
+    <div class="card">
+      <h2>Statistik</h2>
+      <div class="stat-summary">
+        <div class="stat-chip"><b id="st-players">0</b><span>Spieler</span></div>
+        <div class="stat-chip"><b id="st-matches">0</b><span>Spiele</span></div>
+        <div class="stat-chip"><b id="st-elo">–</b><span>Ø Elo</span></div>
+      </div>
+      <h3 class="stat-h3">🏆 Meiste Siege</h3>
+      <div id="stat-wins" class="stat-list"></div>
+      <h3 class="stat-h3">👫 Bestes Team</h3>
+      <div id="stat-team" class="stat-list"></div>
+      <h3 class="stat-h3">🚀 Höchstes Ergebnis</h3>
+      <div id="stat-highscore" class="stat-list"></div>
+      <h3 class="stat-h3">💪 Größter Sieg (Punktedifferenz)</h3>
+      <div id="stat-margin" class="stat-list"></div>
+    </div>
     <div class="card">
       <h2>Elo-Ranking</h2>
       <p class="empty-hint ranking-empty" id="ranking-empty">Noch keine Spieler – sobald du ein Match speicherst, steht hier das Ranking.</p>
@@ -465,8 +494,104 @@ function renderHistory(){
   });
 }
 
+function mkStatRow(rank,medal,name,sub,val){
+  var row=document.createElement('div');row.className='stat-row';
+  var r=document.createElement('span');r.className='sr-rank'+(medal?' medal':'');
+  r.textContent=rank;
+  var n=document.createElement('span');n.className='sr-name';n.textContent=name;
+  if(sub){
+    var u=document.createElement('span');u.className='sr-sub';u.textContent=sub;
+    n.appendChild(u);
+  }
+  var v=document.createElement('span');v.className='sr-val';v.textContent=val;
+  row.appendChild(r);row.appendChild(n);row.appendChild(v);
+  return row;
+}
+function statEmpty(text){
+  var e=document.createElement('p');e.className='stat-empty';e.textContent=text;
+  return e;
+}
+function pluralSieg(n){return n+' '+(n===1?'Sieg':'Siege');}
+function renderStats(){
+  function byId(id){var p=state.players.find(function(x){return x.id===id;});return p?p.name:'?';}
+  function names(ids){return ids.map(byId).join(' & ');}
+  var none='Noch keine Matches – nach dem ersten Speichern erscheinen hier die Statistiken.';
+  var medals=['🥇','🥈','🥉'];
+
+  /* Übersicht */
+  $('#st-players').textContent=String(state.players.length);
+  $('#st-matches').textContent=String(state.matches.length);
+  var sum=0;state.players.forEach(function(p){sum+=p.elo;});
+  $('#st-elo').textContent=state.players.length?fmtElo(sum/state.players.length):'–';
+
+  /* Meiste Siege (Spieler) */
+  var winCount={};
+  state.matches.forEach(function(m){
+    var w=m.scoreA>m.scoreB?m.teamA:(m.scoreB>m.scoreA?m.teamB:null);
+    if(w)w.forEach(function(id){winCount[id]=(winCount[id]||0)+1;});
+  });
+  var wbox=$('#stat-wins');wbox.textContent='';
+  if(state.matches.length===0){wbox.appendChild(statEmpty(none));}
+  else{
+    var wlist=state.players.slice().sort(function(a,b){return (winCount[b.id]||0)-(winCount[a.id]||0)||a.name.localeCompare(b.name,'de');});
+    var shown=0;
+    wlist.forEach(function(p,i){
+      var c=winCount[p.id]||0;
+      if(c===0)return;
+      wbox.appendChild(mkStatRow(i<3?medals[i]:String(i+1),i<3,p.name,null,pluralSieg(c)));
+      shown++;
+    });
+    if(shown===0){wbox.appendChild(statEmpty('Noch keine Siege eingetragen.'));}
+  }
+
+  /* Bestes Team (Paar) */
+  var teamWins={};
+  state.matches.forEach(function(m){
+    if(m.scoreA===m.scoreB)return;
+    var w=m.scoreA>m.scoreB?m.teamA:m.teamB;
+    var key=w.slice().sort().join('|');
+    teamWins[key]=(teamWins[key]||0)+1;
+  });
+  var tbox=$('#stat-team');tbox.textContent='';
+  var tRows=Object.keys(teamWins).sort(function(a,b){return teamWins[b]-teamWins[a];});
+  if(tRows.length===0){tbox.appendChild(statEmpty(none));}
+  else{
+    tRows.slice(0,3).forEach(function(key,i){
+      tbox.appendChild(mkStatRow(i<3?medals[i]:String(i+1),i<3,names(key.split('|')),null,pluralSieg(teamWins[key])));
+    });
+  }
+
+  /* Höchstes Ergebnis (höchster Sieger-Punktestand) */
+  var best=null;
+  state.matches.forEach(function(m){
+    var ts=m.ts||0,winScore=Math.max(m.scoreA,m.scoreB);
+    if(winScore>0&&(!best||winScore>best.score||(winScore===best.score&&ts>best.ts))){best={score:winScore,ts:ts,m:m};}
+  });
+  var hbox=$('#stat-highscore');hbox.textContent='';
+  if(!best){hbox.appendChild(statEmpty(none));}
+  else{
+    var mh=best.m,wa=mh.scoreA>mh.scoreB;
+    var wName=names(wa?mh.teamA:mh.teamB),lName=names(wa?mh.teamB:mh.teamA);
+    hbox.appendChild(mkStatRow('🚀',false,wName,'vs '+lName+' · '+(mh.ts?fmtDate(mh.ts):'Zeit unbekannt'),String(best.score)));
+  }
+
+  /* Größter Sieg (Punktedifferenz) */
+  var big=null;
+  state.matches.forEach(function(m){
+    var ts=m.ts||0,d=Math.abs(m.scoreA-m.scoreB);
+    if(d>0&&(!big||d>big.d||(d===big.d&&ts>big.ts))){big={d:d,ts:ts,m:m};}
+  });
+  var gbox=$('#stat-margin');gbox.textContent='';
+  if(!big){gbox.appendChild(statEmpty(none));}
+  else{
+    var mg=big.m,wa2=mg.scoreA>mg.scoreB;
+    var wName2=names(wa2?mg.teamA:mg.teamB),lName2=names(wa2?mg.teamB:mg.teamA);
+    gbox.appendChild(mkStatRow('💪',false,wName2,'vs '+lName2+' · '+(mg.ts?fmtDate(mg.ts):'Zeit unbekannt'),'+'+String(big.d)));
+  }
+}
+
 function renderAll(){
-  renderPlayerList();renderChips();renderTeams();renderRanking();renderHistory();renderScores();updateSave();
+  renderPlayerList();renderChips();renderTeams();renderRanking();renderHistory();renderStats();renderScores();updateSave();
 }
 /* ---------- Aktionen ---------- */
 function addPlayer(e){
