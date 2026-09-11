@@ -1,0 +1,20 @@
+{
+  "name": "Beachvolleyball Stats",
+  "short_name": "BV Stats",
+  "description": "Spieler anlegen, Matches eintragen, Elo-Ranking & Verlauf – auch offline nutzbar.",
+  "lang": "de",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6e9d4",
+  "theme_color": "#167a9e",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
