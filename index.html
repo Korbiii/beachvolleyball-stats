@@ -235,14 +235,11 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
 .btn-ghost{background:#fffdf8;color:var(--ocean);border:1.5px solid var(--ocean);box-shadow:none}
 .point-editor{border:1px dashed var(--line);border-radius:14px;padding:12px 10px;margin:8px 0 12px;background:#fdfaf2}
 .pt-label{font-size:12px;font-weight:800;color:var(--muted);margin:8px 0 4px}
-.pt-teams{display:flex;gap:8px}
-.pt-opt{border:1.5px solid #d9cdb4;background:#fbf3e0;color:var(--ink);border-radius:12px;min-height:42px;padding:0 18px;font-size:14px;font-weight:700;cursor:pointer}
-.pt-opt.ta{color:var(--ocean)}
-.pt-opt.tb{color:var(--coral-dark)}
-.pt-opt.ta.on{background:var(--ocean);color:#fff;border-color:transparent}
-.pt-opt.tb.on{background:var(--coral);color:#fff;border-color:transparent}
 .pt-players{display:flex;flex-wrap:wrap;gap:8px}
-.pt-player{min-height:42px;padding:8px 14px;border-radius:999px;border:1.5px solid #d9cdb4;background:#fbf3e0;color:var(--ink);font-weight:600;font-size:14px;cursor:pointer}
+.pt-player{min-height:42px;padding:8px 12px;border-radius:999px;border:1.5px solid #d9cdb4;background:#fbf3e0;color:var(--ink);font-weight:600;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.pt-tag{font-size:10.5px;font-weight:800}
+.pt-player.ta{color:var(--ocean);border-color:rgba(22,122,158,.45);background:var(--ocean-soft)}
+.pt-player.tb{color:var(--coral-dark);border-color:rgba(250,110,84,.45);background:#fdeee8}
 .pt-player.on{background:var(--ocean);color:#fff;border-color:transparent}
 .pt-list{list-style:none;margin:6px 0 0;padding:0}
 .pt-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;background:#fdfaf2;border:1px solid var(--line);margin-bottom:6px}
@@ -359,14 +356,9 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
       <button type="button" class="btn btn-ghost btn-block" id="detail-toggle">🎯 Punkte-Details (optional)</button>
       <div id="point-editor" class="point-editor" style="display:none">
         <p class="hint" style="margin:0 0 8px">Wer hat den Punkt gemacht und wie? Für die Analyse – <b>kein Einfluss</b> auf Elo oder Ranking. Der Punktestand des Teams zählt automatisch mit.</p>
-        <div class="pt-label">1. Team</div>
-        <div class="pt-teams">
-          <button type="button" class="pt-opt ta on" id="pt-team-a" data-team="a" aria-label="Punkt für Team A">Team A</button>
-          <button type="button" class="pt-opt tb" id="pt-team-b" data-team="b" aria-label="Punkt für Team B">Team B</button>
-        </div>
-        <div class="pt-label">2. Spieler</div>
+        <div class="pt-label">1. Spieler (A/B = Team)</div>
         <div class="pt-players" id="pt-players"></div>
-        <div class="pt-label">3. Wie?</div>
+        <div class="pt-label">2. Wie?</div>
         <div class="chip-grid pt-types" id="pt-types"></div>
         <button type="button" class="btn btn-accent btn-block" id="pt-add" disabled>＋ Punkt hinzufügen</button>
         <div class="pt-label">Erfasste Punkte (<span id="pt-count">0</span>)</div>
@@ -1036,25 +1028,27 @@ function renderPtList(){
   });
 }
 function renderPointEditor(){
-  $('#pt-team-a').className='pt-opt ta'+(detailTeam==='a'?' on':'');
-  $('#pt-team-b').className='pt-opt tb'+(detailTeam==='b'?' on':'');
+  var aIds=selection.slice(0,2),bIds=selection.slice(2,4);
+  if(detailPlayerId&&selection.indexOf(detailPlayerId)<0)detailPlayerId=null;
   var pl=$('#pt-players');pl.textContent='';
-  var teamIds=detailTeam==='a'?selection.slice(0,2):selection.slice(2,4);
-  if(detailPlayerId&&teamIds.indexOf(detailPlayerId)<0)detailPlayerId=null;
-  if(teamIds.length===0){
+  if(selection.length<4){
     var hint=document.createElement('p');hint.className='stat-empty';
     hint.textContent=state.players.length<4?'Mindestens 4 Spieler nötig.':'Wähle zuerst 4 Spieler-Chips oben.';
     pl.appendChild(hint);
   }else{
-    teamIds.forEach(function(id){
+    function addP(id,teamTag){
       var p=state.players.find(function(x){return x.id===id;});
       if(!p)return;
       var b=document.createElement('button');b.type='button';
-      b.className='pt-player'+(detailPlayerId===id?' on':'');
-      b.textContent=p.name;
-      b.addEventListener('click',function(){detailPlayerId=id;renderPointEditor();});
+      b.className='pt-player '+(teamTag==='A'?'ta':'tb')+(detailPlayerId===id?' on':'');
+      var tag=document.createElement('span');tag.className='pt-tag';tag.textContent=teamTag;
+      b.appendChild(tag);
+      b.appendChild(document.createTextNode(p.name));
+      b.addEventListener('click',function(){detailPlayerId=id;detailTeam=(teamTag==='A'?'a':'b');renderPointEditor();});
       pl.appendChild(b);
-    });
+    }
+    aIds.forEach(function(id){addP(id,'A');});
+    bIds.forEach(function(id){addP(id,'B');});
   }
   var tb=$('#pt-types');tb.textContent='';
   POINT_TYPES.forEach(function(t){
@@ -1287,8 +1281,6 @@ $('#detail-toggle').addEventListener('click',function(){
   this.textContent=open?'🎯 Punkte-Details (optional)':'🎯 Punkte-Details ausblenden';
   if(!open)renderPointEditor();
 });
-$('#pt-team-a').addEventListener('click',function(){detailTeam='a';detailPlayerId=null;renderPointEditor();});
-$('#pt-team-b').addEventListener('click',function(){detailTeam='b';detailPlayerId=null;renderPointEditor();});
 $('#pt-add').addEventListener('click',function(){
   if(!detailPlayerId||!detailType)return;
   detailPoints.push({team:detailTeam,playerId:detailPlayerId,type:detailType});
