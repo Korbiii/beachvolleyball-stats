@@ -245,6 +245,13 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
 .pt-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;background:#fdfaf2;border:1px solid var(--line);margin-bottom:6px}
 .pt-item .pt-person{flex:1;min-width:0;font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pt-item .pt-type-label{font-size:12px;color:var(--muted);font-weight:600}
+.pt-recip{font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 6px;flex:0 0 auto}
+.pt-recip.ta{background:var(--ocean-soft);color:var(--ocean)}
+.pt-recip.tb{background:#fdeee8;color:var(--coral-dark)}
+.pt-preview{display:none;font-size:13px;font-weight:800;margin:2px 0 4px;text-align:center}
+.pt-preview.show{display:block}
+.pt-preview.ta{color:var(--ocean)}
+.pt-preview.tb{color:var(--coral-dark)}
 .overlay{position:fixed;inset:0;z-index:70;background:rgba(35,50,60,.55);display:flex;align-items:center;justify-content:center}
 .modal{background:var(--card);border-radius:18px;border:1px solid var(--line);box-shadow:var(--shadow);max-width:92%;max-height:82%;overflow-y:auto;padding:18px 16px;position:relative}
 .modal h3{font-size:15px;font-weight:800;margin:0 0 10px}
@@ -355,11 +362,12 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
       <p class="hint" id="save-hint" style="text-align:center"></p>
       <button type="button" class="btn btn-ghost btn-block" id="detail-toggle">🎯 Punkte-Details (optional)</button>
       <div id="point-editor" class="point-editor" style="display:none">
-        <p class="hint" style="margin:0 0 8px">Wähle den Spieler, auf dessen Konto der Punkt geht, und die Aktion, die zum Punkt geführt hat. <b>Kein Einfluss</b> auf Elo/Ranking – der Punktestand seines Teams zählt automatisch mit.</p>
+        <p class="hint" style="margin:0 0 8px">Wähle den Spieler und die Aktion: 💥 Kill &amp; 🛡️ Block = Punkt für das eigene Team · 🖐️ Annahme-/🎯 Zuspiel-/⚔️ Angriffs-Fehler = Punkt für den Gegner. <b>Kein Einfluss</b> auf Elo/Ranking – der Punktestand des Punkte-Teams zählt hoch.</p>
         <div class="pt-label">1. Spieler (A/B = Team)</div>
         <div class="pt-players" id="pt-players"></div>
         <div class="pt-label">2. Wie?</div>
         <div class="chip-grid pt-types" id="pt-types"></div>
+        <div class="pt-preview" id="pt-preview"></div>
         <button type="button" class="btn btn-accent btn-block" id="pt-add" disabled>＋ Punkt hinzufügen</button>
         <div class="pt-label">Erfasste Punkte (<span id="pt-count">0</span>)</div>
         <ul id="pt-list" class="pt-list"></ul>
@@ -464,17 +472,22 @@ var detailPoints=[];
 var confirmMatchDel=null;
 var detailMatchId=null;
 var POINT_TYPES=[
-  {id:'kill',icon:'💥',label:'Kill / Aufschlag',desc:'Eigener Aufschlag – Ball unspielbar direkt im Sand'},
-  {id:'block',icon:'🛡️',label:'Block',desc:'Erfolgreicher eigener Block – Ball fällt zu Boden'},
-  {id:'annahme',icon:'🖐️',label:'Annahme-Fehler',desc:'Fehler des Gegners bei der Annahme'},
-  {id:'zuspiel',icon:'🎯',label:'Zuspiel-Fehler',desc:'Fehler des Gegners im Zuspiel'},
-  {id:'angriff',icon:'⚔️',label:'Angriffs-Fehler',desc:'Angriffsfehler des Gegners (Ball im Aus/Netz)'},
-  {id:'sonst',icon:'🎲',label:'Sonstiges',desc:'Alles andere'}
+  {id:'kill',icon:'💥',label:'Kill / Aufschlag',desc:'Eigener Aufschlag direkt in den Sand – Punkt für das eigene Team'},
+  {id:'block',icon:'🛡️',label:'Block',desc:'Erfolgreicher Block – Ball fällt zu Boden – Punkt für das eigene Team'},
+  {id:'annahme',icon:'🖐️',label:'Annahme-Fehler',desc:'Annahme verpatzt – Punkt für den Gegner'},
+  {id:'zuspiel',icon:'🎯',label:'Zuspiel-Fehler',desc:'Zuspiel verpatzt – Punkt für den Gegner'},
+  {id:'angriff',icon:'⚔️',label:'Angriffs-Fehler',desc:'Angriff verpatzt (Ball im Aus/Netz) – Punkt für den Gegner'},
+  {id:'sonst',icon:'🎲',label:'Sonstiges',desc:'Alles andere – Punkt für das eigene Team'}
 ];
 function pointType(id){
   for(var k=0;k<POINT_TYPES.length;k++){if(POINT_TYPES[k].id===id)return POINT_TYPES[k];}
   if(id==='fehler')return {id:'fehler',icon:'⚠️',label:'Gegnerfehler'};
   return null;
+}
+function recipientTeam(pt){
+  var own=pt.team;
+  if(pt.type==='annahme'||pt.type==='zuspiel'||pt.type==='angriff')return own==='a'?'b':'a';
+  return own;
 }
 var $=function(s){return document.querySelector(s);};
 
@@ -1018,14 +1031,17 @@ function renderPtList(){
     var li=document.createElement('li');li.className='pt-item';
     var p=state.players.find(function(x){return x.id===pt.playerId;});
     var t=pointType(pt.type);
+    var rTeam=recipientTeam(pt);
     var who=document.createElement('span');who.className='pt-person';
-    who.textContent=(pt.team==='a'?'Team A':'Team B')+' · '+(p?p.name:'?');
+    who.textContent=(p?p.name:'?')+' ('+(pt.team==='a'?'A':'B')+')';
+    var rec=document.createElement('span');rec.className='pt-recip '+(rTeam==='a'?'ta':'tb');
+    rec.textContent='→ '+(rTeam==='a'?'Team A':'Team B');
     var how=document.createElement('span');how.className='pt-type-label';
     how.textContent=(t?t.icon+' ':'')+(t?t.label:pt.type);
     var rm=document.createElement('button');rm.type='button';rm.className='icon-btn';
     rm.setAttribute('aria-label','Punkt entfernen');rm.textContent='✕';
     rm.addEventListener('click',function(){detailPoints.splice(i,1);renderPtList();});
-    li.appendChild(who);li.appendChild(how);li.appendChild(rm);
+    li.appendChild(who);li.appendChild(rec);li.appendChild(how);li.appendChild(rm);
     ul.appendChild(li);
   });
 }
@@ -1062,6 +1078,15 @@ function renderPointEditor(){
     tb.appendChild(b);
   });
   $('#pt-add').disabled=!(detailPlayerId&&detailType);
+  var pv=$('#pt-preview');
+  if(!detailPlayerId||!detailType){
+    pv.className='pt-preview';
+    pv.textContent='';
+  }else{
+    var rTeam=recipientTeam({team:detailTeam,type:detailType});
+    pv.className='pt-preview show '+(rTeam==='a'?'ta':'tb');
+    pv.textContent='→ Punkt für '+(rTeam==='a'?'Team A':'Team B');
+  }
   renderPtList();
 }
 function removeMatch(id){
@@ -1127,17 +1152,20 @@ function openMatchDetail(id){
     pts.forEach(function(pt){
       var li=document.createElement('li');li.className='pt-item';
       var t=pointType(pt.type);
+      var rTeam=recipientTeam(pt);
       var who=document.createElement('span');who.className='pt-person';
-      who.textContent=(pt.team==='a'?'Team A':'Team B')+' · '+nm(pt.playerId);
+      who.textContent=nm(pt.playerId)+' ('+(pt.team==='a'?'A':'B')+')';
+      var rec=document.createElement('span');rec.className='pt-recip '+(rTeam==='a'?'ta':'tb');
+      rec.textContent='→ '+(rTeam==='a'?'Team A':'Team B');
       var how=document.createElement('span');how.className='pt-type-label';
       how.textContent=(t?t.icon+' ':'')+(t?t.label:pt.type);
-      li.appendChild(who);li.appendChild(how);
+      li.appendChild(who);li.appendChild(rec);li.appendChild(how);
       ul.appendChild(li);
     });
     body.appendChild(ul);
   }
   var leg=document.createElement('p');leg.className='md-legend';
-  leg.textContent='Der Punkt zählt für das Team des gewählten Spielers. 💥 Kill = eigener Aufschlag in den Sand · 🛡️ Block = erfolgreicher Block · 🖐️ Annahme-/🎯 Zuspiel-/⚔️ Angriffs-Fehler = Fehler des Gegners · 🎲 Sonstiges';
+  leg.textContent='💥 Kill & 🛡️ Block = Punkt für das Team des Spielers · 🖐️ Annahme-, 🎯 Zuspiel-, ⚔️ Angriffs-Fehler = Spieler-Fehler → Punkt für den Gegner · 🎲 Sonstiges = eigenes Team';
   body.appendChild(leg);
   $('#detail-overlay').style.display='';
 }
@@ -1287,7 +1315,7 @@ $('#detail-toggle').addEventListener('click',function(){
 $('#pt-add').addEventListener('click',function(){
   if(!detailPlayerId||!detailType)return;
   detailPoints.push({team:detailTeam,playerId:detailPlayerId,type:detailType});
-  applyStep(detailTeam,1);
+  applyStep(recipientTeam({team:detailTeam,type:detailType}),1);
   detailType=null;
   renderPointEditor();
 });
