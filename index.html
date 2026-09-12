@@ -355,7 +355,7 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
       <p class="hint" id="save-hint" style="text-align:center"></p>
       <button type="button" class="btn btn-ghost btn-block" id="detail-toggle">🎯 Punkte-Details (optional)</button>
       <div id="point-editor" class="point-editor" style="display:none">
-        <p class="hint" style="margin:0 0 8px">Wer hat den Punkt gemacht und wie? Für die Analyse – <b>kein Einfluss</b> auf Elo oder Ranking. Der Punktestand des Teams zählt automatisch mit.</p>
+        <p class="hint" style="margin:0 0 8px">Wähle den Spieler, auf dessen Konto der Punkt geht, und die Aktion, die zum Punkt geführt hat. <b>Kein Einfluss</b> auf Elo/Ranking – der Punktestand seines Teams zählt automatisch mit.</p>
         <div class="pt-label">1. Spieler (A/B = Team)</div>
         <div class="pt-players" id="pt-players"></div>
         <div class="pt-label">2. Wie?</div>
@@ -464,14 +464,16 @@ var detailPoints=[];
 var confirmMatchDel=null;
 var detailMatchId=null;
 var POINT_TYPES=[
-  {id:'kill',icon:'💥',label:'Kill / Aufschlag'},
-  {id:'block',icon:'🛡️',label:'Block'},
-  {id:'annahme',icon:'🖐️',label:'Annahme-Fehler'},
-  {id:'fehler',icon:'⚠️',label:'Gegnerfehler'},
-  {id:'sonst',icon:'🎲',label:'Sonstiges'}
+  {id:'kill',icon:'💥',label:'Kill / Aufschlag',desc:'Eigener Aufschlag – Ball unspielbar direkt im Sand'},
+  {id:'block',icon:'🛡️',label:'Block',desc:'Erfolgreicher eigener Block – Ball fällt zu Boden'},
+  {id:'annahme',icon:'🖐️',label:'Annahme-Fehler',desc:'Fehler des Gegners bei der Annahme'},
+  {id:'zuspiel',icon:'🎯',label:'Zuspiel-Fehler',desc:'Fehler des Gegners im Zuspiel'},
+  {id:'angriff',icon:'⚔️',label:'Angriffs-Fehler',desc:'Angriffsfehler des Gegners (Ball im Aus/Netz)'},
+  {id:'sonst',icon:'🎲',label:'Sonstiges',desc:'Alles andere'}
 ];
 function pointType(id){
   for(var k=0;k<POINT_TYPES.length;k++){if(POINT_TYPES[k].id===id)return POINT_TYPES[k];}
+  if(id==='fehler')return {id:'fehler',icon:'⚠️',label:'Gegnerfehler'};
   return null;
 }
 var $=function(s){return document.querySelector(s);};
@@ -1055,6 +1057,7 @@ function renderPointEditor(){
     var b=document.createElement('button');b.type='button';
     b.className='chip pt-type'+(detailType===t.id?' sel':'');
     b.textContent=t.icon+' '+t.label;
+    if(t.desc)b.setAttribute('title',t.desc);
     b.addEventListener('pointerdown',function(e){e.preventDefault();detailType=t.id;renderPointEditor();});
     tb.appendChild(b);
   });
@@ -1134,7 +1137,7 @@ function openMatchDetail(id){
     body.appendChild(ul);
   }
   var leg=document.createElement('p');leg.className='md-legend';
-  leg.textContent='💥 Kill = harter Schlag direkt in den Sand · 🛡️ Block = Abwehr zu Boden · 🖐️ Annahme-Fehler = Annahme misslungen · ⚠️ Gegnerfehler = Aus/Netz/Doppel/Fuß · 🎲 Sonstiges';
+  leg.textContent='Der Punkt zählt für das Team des gewählten Spielers. 💥 Kill = eigener Aufschlag in den Sand · 🛡️ Block = erfolgreicher Block · 🖐️ Annahme-/🎯 Zuspiel-/⚔️ Angriffs-Fehler = Fehler des Gegners · 🎲 Sonstiges';
   body.appendChild(leg);
   $('#detail-overlay').style.display='';
 }
