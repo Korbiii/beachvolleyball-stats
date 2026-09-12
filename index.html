@@ -196,17 +196,19 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
 .stat-empty{color:var(--muted);font-size:12.5px;padding:8px 0 0;margin:0}
 .gender-toggle{display:flex;gap:8px}
 .row-form .gender-toggle{flex:1 1 100%}
-.gt-opt{
+.height-toggle{display:flex;gap:8px}
+.row-form .height-toggle{flex:1 1 100%}
+.gt-opt,.ht-opt{
   border:1.5px solid #d9cdb4;background:#fbf3e0;color:var(--ink);
   border-radius:12px;min-height:44px;padding:0 16px;font-size:15px;font-weight:700;cursor:pointer;
   transition:background .15s,color .15s;
 }
-.gt-opt.on{background:var(--ocean);border-color:var(--ocean);color:#fff}
+.gt-opt.on,.ht-opt.on{background:var(--ocean);border-color:var(--ocean);color:#fff}
 .p-name{display:flex;align-items:center;gap:6px}
 .p-nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gender-cyc{
+.gender-cyc,.height-cyc{
   border:0;background:var(--ocean-soft);color:var(--ocean);border-radius:8px;
-  width:26px;height:26px;font-size:15px;line-height:1;cursor:pointer;flex:0 0 auto;padding:0;
+  min-width:30px;height:26px;font-size:14px;line-height:1;cursor:pointer;flex:0 0 auto;padding:0 2px;
 }
 .p-sub{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
 .ps-pill{font-size:10.5px;font-weight:700;color:var(--ink);background:#f1e7d2;border-radius:6px;padding:2px 6px;display:inline-flex;gap:4px;align-items:baseline}
@@ -301,6 +303,11 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
         <div class="gender-toggle" id="new-player-gender" role="radiogroup" aria-label="Geschlecht (optional)">
           <button type="button" class="gt-opt" data-gender="w" aria-label="Weiblich">♀ W</button>
           <button type="button" class="gt-opt" data-gender="m" aria-label="Männlich">♂ M</button>
+          <button type="button" class="gt-opt" data-gender="n" aria-label="Nonbinär">⚧ N</button>
+        </div>
+        <div class="height-toggle" id="new-player-height" role="radiogroup" aria-label="Größe (optional)">
+          <button type="button" class="ht-opt" data-height="s" aria-label="Kleiner als 175 cm">&lt;175 cm</button>
+          <button type="button" class="ht-opt" data-height="t" aria-label="Größer oder gleich 175 cm">≥175 cm</button>
         </div>
         <button class="btn btn-accent" type="submit">＋ Hinzufügen</button>
       </form>
@@ -351,7 +358,7 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
       <p class="hint" id="save-hint" style="text-align:center"></p>
       <button type="button" class="btn btn-ghost btn-block" id="detail-toggle">🎯 Punkte-Details (optional)</button>
       <div id="point-editor" class="point-editor" style="display:none">
-        <p class="hint" style="margin:0 0 8px">Wer hat den Punkt gemacht und wie? Nur zur Analyse – <b>kein Einfluss</b> auf Elo, Ranking oder Statistik.</p>
+        <p class="hint" style="margin:0 0 8px">Wer hat den Punkt gemacht und wie? Für die Analyse – <b>kein Einfluss</b> auf Elo oder Ranking. Der Punktestand des Teams zählt automatisch mit.</p>
         <div class="pt-label">1. Team</div>
         <div class="pt-teams">
           <button type="button" class="pt-opt ta on" id="pt-team-a" data-team="a" aria-label="Punkt für Team A">Team A</button>
@@ -508,11 +515,16 @@ function persist(){
 function fmtElo(v){return Math.round(v).toLocaleString('de-DE');}
 
 var newGender=null;
+var newHeight=null;
 function genderOf(id){var p=state.players.find(function(x){return x.id===id;});return p?p.gender:null;}
 function teamMixed(ids){
-  var hw=false,hm=false;
-  ids.forEach(function(id){var g=genderOf(id);if(g==='w')hw=true;else if(g==='m')hm=true;});
-  return hw&&hm;
+  var gs=[];
+  ids.forEach(function(id){
+    var g=genderOf(id);
+    if(g!=='w'&&g!=='m'&&g!=='n')return;
+    if(gs.indexOf(g)<0)gs.push(g);
+  });
+  return gs.length>=2;
 }
 function matchMixed(m){return teamMixed(m.teamA)||teamMixed(m.teamB);}
 function eventName(id){var e=state.events.find(function(x){return x.id===id;});return e?e.name:'';}
@@ -587,10 +599,15 @@ function renderPlayerList(){
     var nmt=document.createElement('span');nmt.className='p-nm';nmt.textContent=p.name;
     var gc=document.createElement('button');
     gc.type='button';gc.className='gender-cyc';
-    gc.setAttribute('aria-label','Geschlecht wechseln ('+(p.gender==='w'?'weiblich':(p.gender==='m'?'männlich':'nicht gesetzt'))+')');
-    gc.textContent=p.gender==='w'?'♀':(p.gender==='m'?'♂':'–');
+    gc.setAttribute('aria-label','Geschlecht wechseln ('+(p.gender==='w'?'weiblich':(p.gender==='m'?'männlich':(p.gender==='n'?'nonbinär':'nicht gesetzt')))+')');
+    gc.textContent=p.gender==='w'?'♀':(p.gender==='m'?'♂':(p.gender==='n'?'⚧':'–'));
     gc.addEventListener('click',function(){cycleGender(p.id);});
-    nm.appendChild(nmt);nm.appendChild(gc);
+    var hc=document.createElement('button');
+    hc.type='button';hc.className='height-cyc';
+    hc.setAttribute('aria-label','Größe wechseln ('+(p.height==='s'?'unter 175 cm':(p.height==='t'?'ab 175 cm':'nicht gesetzt'))+')');
+    hc.textContent=p.height==='s'?'‹175':(p.height==='t'?'≥175':'–');
+    hc.addEventListener('click',function(){cycleHeight(p.id);});
+    nm.appendChild(nmt);nm.appendChild(gc);nm.appendChild(hc);
     var sub=document.createElement('div');sub.className='p-sub';
     var s=stats[p.id]||{w:0,l:0,g:0,today:0,pts:0};
     [['Siege',s.w,false],['Niederl.',s.l,false],['Spiele',s.g,false],['heute',s.today,true],['Punkte',s.pts,true]].forEach(function(pp){
@@ -1141,9 +1158,9 @@ function addPlayer(e){
   var input=$('#new-player-name');
   var name=input.value.trim().replace(/\s+/g,' ');
   if(!name){input.focus();toast('Bitte einen Namen eingeben');return;}
-  state.players.push({id:uid(),name:name,elo:1500,gender:newGender});
+  state.players.push({id:uid(),name:name,elo:1500,gender:newGender,height:newHeight});
   persist();input.value='';renderAll();
-  resetGenderToggle();
+  resetGenderToggle();resetHeightToggle();
   toast('🏐 '+name+' ist dabei (Elo 1500)');
 }
 
@@ -1275,6 +1292,7 @@ $('#pt-team-b').addEventListener('click',function(){detailTeam='b';detailPlayerI
 $('#pt-add').addEventListener('click',function(){
   if(!detailPlayerId||!detailType)return;
   detailPoints.push({team:detailTeam,playerId:detailPlayerId,type:detailType});
+  applyStep(detailTeam,1);
   detailType=null;
   renderPointEditor();
 });
@@ -1299,15 +1317,33 @@ function setGenderToggle(g){
   }
 }
 function resetGenderToggle(){setGenderToggle(null);}
+function setHeightToggle(h){
+  newHeight=h;
+  var opts=$('#new-player-height').children;
+  for(var gi=0;gi<opts.length;gi++){
+    opts[gi].className='ht-opt'+(opts[gi].dataset.height===h?' on':'');
+  }
+}
+function resetHeightToggle(){setHeightToggle(null);}
 function cycleGender(id){
   var p=state.players.find(function(x){return x.id===id;});
   if(!p)return;
-  p.gender=p.gender==='w'?'m':(p.gender==='m'?null:'w');
+  p.gender=p.gender==='w'?'m':(p.gender==='m'?'n':(p.gender==='n'?null:'w'));
+  persist();renderAll();
+}
+function cycleHeight(id){
+  var p=state.players.find(function(x){return x.id===id;});
+  if(!p)return;
+  p.height=p.height==='s'?'t':(p.height==='t'?null:'s');
   persist();renderAll();
 }
 var gtOpts=document.querySelectorAll('.gt-opt');
 for(var gi2=0;gi2<gtOpts.length;gi2++){
   gtOpts[gi2].addEventListener('click',function(){setGenderToggle(this.dataset.gender);});
+}
+var htOpts=document.querySelectorAll('.ht-opt');
+for(var hi=0;hi<htOpts.length;hi++){
+  htOpts[hi].addEventListener('click',function(){setHeightToggle(this.dataset.height);});
 }
 $('#save-match').addEventListener('click',saveMatch);
 var tabs=document.querySelectorAll('.tab');
