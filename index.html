@@ -1445,10 +1445,25 @@ for(var t=0;t<tabs.length;t++){
   tabs[t].addEventListener('click',function(){switchTab(this.dataset.screen);});
 }
 
-/* PWA: Service Worker nur bei http(s)-Hosting registrieren (offline-fähig + installierbar) */
+/* PWA: Service Worker nur bei http(s)-Hosting registrieren (offline-fähig + installierbar).
+   updateViaCache:'none' → sw.js wird immer frisch vom Netz geholt, damit Updates erkannt werden.
+   Beim Update wird die Seite einmal neu geladen, damit die neue Version sofort erscheint. */
 if('serviceWorker' in navigator&&location.protocol.indexOf('http')===0){
   window.addEventListener('load',function(){
-    try{navigator.serviceWorker.register('sw.js');}catch(e){}
+    try{
+      navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(function(reg){
+        if(reg.active){ // kein Reload bei Erstinstallation (dann ist reg.active noch null)
+          reg.addEventListener('updatefound',function(){
+            var nw=reg.installing;
+            if(nw){
+              nw.addEventListener('statechange',function(){
+                if(nw.state==='activated')location.reload();
+              });
+            }
+          });
+        }
+      });
+    }catch(e){}
   });
 }
 load();

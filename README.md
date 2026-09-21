@@ -14,7 +14,7 @@ Eine schlanke, offline-fähige Web-App zum Festhalten eures Beachvolleyball-Urla
 - Eine einzige `index.html` mit eingebettetem CSS/JS, keine Build-Pipeline
 - Daten dauerhaft in `localStorage` (Spieler + Matches) – überleben Browser-Neustart
 - Elo-Formel (vereinfacht): Team-Elo = Mittelwert beider Spieler, K = 32, Sieger +Δ / Verlierer −Δ
-- PWA: `manifest.json`, `icon.svg`, `sw.js` (Service Worker für Offline-Cache bei https-Hosting)
+- PWA: `manifest.json`, `icon.svg`, `sw.js` (Service Worker für Offline-Cache bei https-Hosting); die App-Shell wird per „network-first" geladen – Updates erscheinen also automatisch, sobald eine neue Version veröffentlicht wird
 
 ## Auf dem Handy nutzen
 
