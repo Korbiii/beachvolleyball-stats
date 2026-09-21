@@ -233,6 +233,8 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
 .ev-activate.active{color:var(--ocean)}
 .ev-tag{font-size:10.5px;font-weight:800;color:var(--ocean);background:var(--ocean-soft);border-radius:6px;padding:2px 6px;flex:0 0 auto}
 .btn-ghost{background:#fffdf8;color:var(--ocean);border:1.5px solid var(--ocean);box-shadow:none}
+.data-actions{display:flex;gap:8px;flex-wrap:wrap}
+.data-actions .btn{flex:1 1 140px}
 .point-editor{border:1px dashed var(--line);border-radius:14px;padding:12px 10px;margin:8px 0 12px;background:#fdfaf2}
 .pt-label{font-size:12px;font-weight:800;color:var(--muted);margin:8px 0 4px}
 .pt-players{display:flex;flex-wrap:wrap;gap:8px}
@@ -429,6 +431,15 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
       </form>
       <p class="empty-hint events-empty" id="events-empty">Noch keine Events – lege eins an.<br>Historie &amp; Statistik lassen sich danach pro Event filtern.</p>
       <ul id="event-list" class="event-list"></ul>
+    </div>
+    <div class="card">
+      <h2>💾 Daten sichern & übertragen</h2>
+      <p class="hint">Exportiere alle Spieler, Matches und Events als JSON-Datei – oder importiere eine zuvor exportierte Datei, um die Daten auf einem anderen Gerät weiterzunutzen.</p>
+      <div class="data-actions">
+        <button type="button" class="btn btn-ghost" id="export-btn">⬇️ Exportieren</button>
+        <button type="button" class="btn btn-ghost" id="import-btn">⬆️ Importieren</button>
+        <input type="file" id="import-file" accept=".json,application/json" style="display:none">
+      </div>
     </div>
   </section>
 </main>
@@ -1286,6 +1297,60 @@ function saveMatch(){
   toast('⚡ '+win.map(function(p){return p.name;}).join(' & ')+' gewinnt '+score+' · Δ '+sign+Math.abs(delta));
 }
 
+/* ---------- Import / Export ---------- */
+function exportData(){
+  var data={app:'beachvolleyball-stats',version:1,exportedAt:new Date().toISOString(),players:state.players,matches:state.matches,events:state.events,activeEventId:state.activeEventId};
+  var blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;
+  var d=new Date();
+  function z(n){return (n<10?'0':'')+n;}
+  a.download='beachvolleyball-stats-'+d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())+'.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(url);},1000);
+  toast('⬇️ Daten exportiert');
+}
+function importData(file){
+  var hasData=state.players.length||state.matches.length||state.events.length;
+  if(hasData&&!window.confirm('Alle aktuellen Daten werden durch den Import ersetzt. Fortfahren?'))return;
+  file.text().then(function(text){
+    try{
+      var data=JSON.parse(text);
+      if(!data||!Array.isArray(data.players)||!Array.isArray(data.matches)||!Array.isArray(data.events)){
+        toast('⚠️ Ungültige Datei – kein BV-Stats-Export');
+        return;
+      }
+      state.players=data.players.map(function(p){
+        var elo=Number(p.elo);
+        return {id:String(p.id||uid()),name:String(p.name||'?'),elo:Number.isFinite(elo)?elo:1500,gender:p.gender||null,height:p.height||null};
+      });
+      state.matches=data.matches.map(function(m){
+        var delta=Number(m.delta);
+        return {id:String(m.id||mid()),teamA:(m.teamA||[]).map(String),teamB:(m.teamB||[]).map(String),scoreA:Number(m.scoreA)||0,scoreB:Number(m.scoreB)||0,ts:m.ts||Date.now(),eventId:m.eventId||'',delta:Number.isFinite(delta)?delta:null,points:Array.isArray(m.points)?m.points:[]};
+      });
+      state.events=data.events.map(function(e){
+        return {id:String(e.id||euid()),name:String(e.name||'?')};
+      });
+      state.activeEventId=String(data.activeEventId||'');
+      if(state.activeEventId&&!state.events.find(function(e){return e.id===state.activeEventId;}))state.activeEventId='';
+      if(!state.activeEventId&&state.events.length)state.activeEventId=state.events[0].id;
+      filterEventId='all';
+      selection=[];
+      scores={a:0,b:0};
+      detailPoints=[];detailType=null;detailPlayerId=null;
+      persist();renderAll();
+      toast('✅ Daten importiert');
+    }catch(e){
+      toast('⚠️ Import fehlgeschlagen');
+    }
+  }).catch(function(){
+    toast('⚠️ Import fehlgeschlagen');
+  });
+}
+
 /* ---------- Tabs ---------- */
 function switchTab(name){
   var screens=document.querySelectorAll('.screen');
@@ -1369,6 +1434,12 @@ for(var hi=0;hi<htOpts.length;hi++){
   htOpts[hi].addEventListener('click',function(){setHeightToggle(this.dataset.height);});
 }
 $('#save-match').addEventListener('click',saveMatch);
+$('#export-btn').addEventListener('click',exportData);
+$('#import-btn').addEventListener('click',function(){$('#import-file').click();});
+$('#import-file').addEventListener('change',function(){
+  if(this.files&&this.files[0])importData(this.files[0]);
+  this.value='';
+});
 var tabs=document.querySelectorAll('.tab');
 for(var t=0;t<tabs.length;t++){
   tabs[t].addEventListener('click',function(){switchTab(this.dataset.screen);});
