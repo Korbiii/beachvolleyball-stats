@@ -14,7 +14,7 @@ Eine schlanke, offline-fähige Web-App zum Festhalten eures Beachvolleyball-Urla
 - Eine einzige `index.html` mit eingebettetem CSS/JS, keine Build-Pipeline
 - Daten dauerhaft **verschlüsselt** in `localStorage` (Spieler + Matches) – überleben Browser-Neustart
 - 🔐 **Ende-zu-Ende-Verschlüsselung (AES-256-GCM):** Alle Daten werden *vor* dem Speichern im Browser verschlüsselt (Web Crypto: PBKDF2-SHA256 → AES-256-GCM) und erst danach lokal bzw. nach **Supabase** geschrieben. Schlüsselbasis ist das **gemeinsame Passwort**; es wird nie übertragen – ohne es sind die Daten auch für Supabase, den Host und Mitlesende unlesbar.
-- ☁️ **Supabase-Synchronisation** über die reine REST-API (PostgREST, kein SDK): eine Zeile pro Passwort in der Tabelle `vault`; Abgleich „neuer gewinnt" über Zeitstempel, manuell per „🔁 Jetzt synchronisieren" oder automatisch beim Start. Offline läuft die App trotzdem komplett weiter (lokales verschlüsseltes Abbild). Optional lässt sich ein **passwortgeschützter Standard-Zugang** fest einbauen (Team-Freischaltung) – eigene Verbindungen bleiben jederzeit möglich.
+- ☁️ **Supabase-Synchronisation** über die reine REST-API (PostgREST, kein SDK): eine Zeile pro Passwort in der Tabelle `vault`. Der Abgleich nutzt die **Serverzeit** (`updated_at`) plus einen Fingerabdruck des zuletzt gemeinsamen Stands: neuere Stände werden automatisch geladen (beim Start, beim Wechsel in den Vordergrund und manuell per „🔁 Jetzt synchronisieren") – ein veraltetes Gerät **überschreibt aber nie still** einen neueren Cloud-Bestand (Konflikt wird angezeigt, Auflösung per „☁️ Cloud-Stand laden" / „⬆️ Lokalen Stand hochladen"). Offline läuft die App trotzdem komplett weiter (lokales verschlüsseltes Abbild). Optional lässt sich ein **passwortgeschützter Standard-Zugang** fest einbauen (Team-Freischaltung) – eigene Verbindungen bleiben jederzeit möglich.
 - Elo-Formel (vereinfacht): Team-Elo = Mittelwert beider Spieler, K = 32, Sieger +Δ / Verlierer −Δ
 - PWA: `manifest.json`, `icon.svg`, `sw.js` (Service Worker für Offline-Cache bei https-Hosting); die App-Shell wird per „network-first" geladen – Updates erscheinen also automatisch, sobald eine neue Version veröffentlicht wird
 
@@ -98,6 +98,19 @@ Das ist trotzdem unkritisch, und zwar aus zwei unabhängigen Gründen:
 - Optional lokal gemerkt („Auf diesem Gerät merken", Standard an). Ohne diese Option fragt die App bei jedem Start.
 - In „Supabase" liegt nur ein abgeleiteter **Blind-Index** (`key_id`, PBKDF2 des Passworts) – er verrät, *dass* ein Bestand existiert, nicht dessen Inhalt.
 
+### Mehrere Geräte – wer gewinnt?
+
+Jedes Gerät hält ein eigenes verschlüsseltes Abbild und gleicht es mit der einen Cloud-Zeile ab:
+
+| Situation | Verhalten |
+|---|---|
+| Cloud seit dem letzten Abgleich unverändert | lokaler Stand bleibt und wird hochgeladen |
+| Cloud geändert, lokal **ohne** eigene Änderungen | Cloud-Stand wird automatisch geladen – auch beim Wechsel in den Vordergrund |
+| Cloud **und** lokal geändert | ⚠️ **nichts** wird automatisch überschrieben: der Konflikt steht im Supabase-Kasten und wird mit **☁️ Cloud-Stand laden** (Cloud gewinnt) oder **⬆️ Lokalen Stand hochladen** (dieses Gerät gewinnt) aufgelöst |
+| Cloud nicht erreichbar | alles bleibt lokal (verschlüsselt) und wird später nachgeholt |
+
+Verglichen wird die **Serverzeit** der `vault`-Zeile (`updated_at`) mit dem Fingerabdruck des zuletzt abgeglichenen Stands – eine falsch gestellte Geräteuhr kann den Abgleich also nicht verfälschen. Neues Gerät oder unklarer Stand: **☁️ Cloud-Stand laden** wählen, das überschreibt das lokale Abbild bewusst mit dem Cloud-Bestand.
+
 ### Sicherheitsmodell – kurz
 
 | Was | Wo |
@@ -108,6 +121,47 @@ Das ist trotzdem unkritisch, und zwar aus zwei unabhängigen Gründen:
 | `key_id` (Blind-Index), Zeitstempel | Supabase (kein Inhalts-Rückschluss) |
 
 > ⚠️ RLS ist für die `vault`-Tabelle bewusst offen („Publishable/anon darf lesen/schreiben"), weil der Inhalt verschlüsselt ist. Falls du das nicht möchtest, ersetze die Policies durch eigene Regeln – die App nutzt nur den Publishable-Zugang mit der Tabelle `vault`.
+
+## Daten aus früheren Jahren importieren (2025 + 2026)
+
+Die Saison **2025** (CSV der Urlaubswoche 14.–21.09.2025) und **2026** (JSON-Export)
+liegen als **eine** importierbare JSON-Datei mit zwei Events vor:
+
+| Event | Spiele | Zeitraum |
+|---|---|---|
+| 🏖️ **Beachvolleyball Urlaub 2025** | 56 | 14.–21.09.2025 (Zeitstempel erfunden, streng aufsteigend) |
+| 🏖️ **Beachvolleyball Urlaub 2026** | 50 | 14.–19.09.2026 (aktiv) |
+
+Erzeugt wird die Datei von `local/build-import-json.py`. Der Ordner `local/`
+(CSV, Exporte, Skript) ist per `.gitignore` vom Repository ausgeschlossen –
+Rohdaten und generierte Importe landen **nie** auf GitHub.
+
+```bash
+python3 local/build-import-json.py                     # JSON + Bericht nach local/
+python3 local/build-import-json.py --days 14,16,21     # Zeittage je CSV-Block ändern
+python3 local/build-import-json.py --spread 8          # Spiele gleichmäßig auf 8 Tage verteilen
+```
+
+Das Skript prüft sich selbst (2026er Elo muss sich mit der App-Formel exakt
+reproduzieren, Struktur, aufsteigende Zeitstempel, Datei-Roundtrip) und schreibt
+`local/import-report.txt` mit Namenszuordnung, verworfenen Spielen und der
+Elo-Veränderung pro Spieler.
+
+**Ablauf in der App:** Tab *Events* → **Daten sichern & übertragen** → zuerst
+„🔁 Jetzt synchronisieren" und „⬇️ Exportieren" (Backup!) → „⬆️ Importieren" →
+`local/beachvolleyball-stats-import-2025-2026.json` wählen → bestätigen.
+Andere Geräte danach neu laden und „🔁 Jetzt synchronisieren".
+
+Wichtig zu wissen:
+- Das Elo wird über **alle** Spiele in chronologischer Reihenfolge ab 1500 neu
+  gerechnet (K = 32, Team = Mittelwert) – die Spiele von 2025 zählen also mit,
+  das Ranking verschiebt sich dadurch einmalig.
+- Der Import **ersetzt** alle Spieler, Matches und Events.
+- Beim Import (und ab dieser Version auch beim Speichern neuer Matches) ist
+  `delta` der tatsächlich angewendete Elo-Wert. Vorher enthielt das Feld
+  zusätzlich die halbe Elo-Differenz der beiden Teamspieler
+  (`teamA[0].elo - rOf(teamA)`), wodurch das **Löschen** eines Matches das Elo
+  falsch zurückgerechnet hat.
 
 ## Auf dem Handy nutzen
 

@@ -474,6 +474,8 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
       </div>
       <div class="session-row">
         <button type="button" class="btn btn-ghost" id="sync-now-btn">🔁 Jetzt synchronisieren</button>
+        <button type="button" class="btn btn-ghost" id="cloud-pull-btn">☁️ Cloud-Stand laden</button>
+        <button type="button" class="btn btn-ghost" id="cloud-push-btn">⬆️ Lokalen Stand hochladen</button>
         <button type="button" class="btn btn-ghost" id="session-switch-btn">🔑 Passwort wechseln</button>
         <button type="button" class="btn btn-accent" id="session-delete-btn">🗑️ Bestand löschen</button>
       </div>
@@ -575,6 +577,11 @@ var vaultChain=Promise.resolve();
 var pushBusy=false,pushPending=false,pushTimer=null;
 var CLOUD_MODE_LS='bv.cloudMode.v1';
 var cloudMode='';
+var remoteUpdatedAt=0;   // updated_at (Serveruhr) der zuletzt gelesenen Cloud-Zeile
+var syncConflict=false; // Cloud und lokal weichen ab -> nichts wird still überschrieben
+var lastPlain='';       // zuletzt verschlüsselt gesicherter Klartext (Änderungserkennung)
+var lastAutoSyncAt=0;   // Drosselung des Vordergrund-Abgleichs
+var autoSyncBusy=false; // verhindert parallele Hintergrund-Abgleiche
 
 /* =====================================================================
    🔒 STANDARD-VERBINDUNG (TEAM) – passwortgeschützter Default-Zugang
@@ -705,6 +712,57 @@ function applyPlain(plain){
   if(needPersist)persist();
   return true;
 }
+/* ---------- Versions-/Änderungserkennung für den Cloud-Abgleich ----------
+   Der Cloud-Bestand wird nicht mehr allein nach "savedAt" (Geräteuhr) beurteilt:
+     baseTs     = updated_at (Serveruhr) der Cloud-Zeile, auf der dieser Stand aufbaut
+     syncedHash = Fingerabdruck des zuletzt mit der Cloud abgeglichenen Stands
+   Damit erkennt die App, ob seit dem letzten Abgleich ein anderes Gerät geschrieben
+   hat, und überschreibt nie still einen neueren Cloud-Bestand. */
+function sigOf(plain){
+  try{
+    var d=JSON.parse(plain);
+    if(!d)return '';
+    return JSON.stringify({players:d.players||[],matches:d.matches||[],events:d.events||[],activeEventId:d.activeEventId||''});
+  }catch(e){return '';}
+}
+function hashOf(plain){
+  var s=sigOf(plain),h=0x811c9dc5,i=0;
+  for(;i<s.length;i++){h^=s.charCodeAt(i);h=(h+((h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24)))>>>0;}
+  return ('00000000'+h.toString(16)).slice(-8);
+}
+function plainIsEmpty(plain){
+  try{
+    var d=JSON.parse(plain);
+    if(!d)return true;
+    return !((d.players||[]).length||(d.matches||[]).length||(d.events||[]).length);
+  }catch(e){return true;}
+}
+function syncDecision(localBlob,localPlain,remoteBlob,remotePlain,remoteUpdatedAt){
+  if(!remoteBlob||remotePlain===null)return {action:'keep-local',why:'kein Cloud-Bestand'};
+  if(!localBlob||localPlain===null)return {action:'take-remote',why:'kein lokaler Bestand'};
+  if(plainIsEmpty(localPlain))return {action:'take-remote',why:'lokal noch leer'};
+  var ls=sigOf(localPlain);
+  if(ls&&ls===sigOf(remotePlain))return {action:'equal',why:'beide Bestände identisch'};
+  var baseTs=Number(localBlob.baseTs||0);
+  var clean=!!localBlob.syncedHash&&localBlob.syncedHash===hashOf(localPlain);
+  if(baseTs&&remoteUpdatedAt&&remoteUpdatedAt<=baseTs)return {action:'keep-local',why:'Cloud seit dem letzten Abgleich unverändert'};
+  if(clean)return {action:'take-remote',why:'Cloud geändert, lokal ohne eigene Änderungen'};
+  return {action:'conflict',why:'lokale und Cloud-Daten weichen ab'};
+}
+function markSynced(updatedAt,plainSynced){
+  if(!vault)return;
+  if(updatedAt)vault.baseTs=Number(updatedAt);
+  if(plainSynced)vault.syncedHash=hashOf(plainSynced);
+  vault.dirty=!(vault.syncedHash&&vault.syncedHash===hashOf(lastPlain||''));
+  try{localStorage.setItem(VAULT_LS,JSON.stringify(vault));}catch(e){}
+}
+function setConflict(msg){
+  var was=syncConflict;
+  syncConflict=true;
+  lastSync={at:Date.now(),ok:false,msg:msg};
+  renderSupabaseStatus();
+  if(!was)toast('⚠️ '+msg);
+}
 function migrateLegacy(){
   if(legacyMigrated)return;
   var p=localStorage.getItem(LS_PLAYERS),m=localStorage.getItem(LS_MATCHES),e=localStorage.getItem(LS_EVENTS);
@@ -722,10 +780,18 @@ function persist(){
   var plain=statePlaintext();
   vaultChain=vaultChain.then(function(){return writeVault(plain);}).catch(function(err){});
 }
-async function writeVault(plain){
+async function sealLocal(plain){
   var blob=await sealPayload(syncPassword,plain);
   blob.keyId=syncKeyId;
   blob.savedAt=Date.now();
+  blob.baseTs=Number((vault&&vault.baseTs)||0);
+  blob.syncedHash=(vault&&vault.syncedHash)||'';
+  blob.dirty=!(blob.syncedHash&&blob.syncedHash===hashOf(plain));
+  return blob;
+}
+async function writeVault(plain){
+  var blob=await sealLocal(plain);
+  lastPlain=plain;
   vault=blob;
   try{localStorage.setItem(VAULT_LS,JSON.stringify(blob));}catch(e){}
   schedulePush();
@@ -738,14 +804,33 @@ async function pushVault(){
   if(!unlocked||!supabaseConfigured()||!vault)return;
   if(pushBusy){pushPending=true;return;}
   pushBusy=true;
+  if(syncConflict){
+    pushBusy=false;
+    lastSync={at:Date.now(),ok:false,msg:'Nicht hochgeladen: Cloud und lokal weichen ab – oben entscheiden'};
+    renderSupabaseStatus();
+    return;
+  }
+  // Schutz vor stillem Überschreiben: hat ein anderes Gerät seit unserem
+  // letzten Abgleich in die Cloud geschrieben? Dann nicht hochladen.
+  var check=await supabaseFetchRow(vault.keyId);
+  if(check.ok&&check.row&&check.updatedAt&&Number(vault.baseTs||0)&&check.updatedAt>Number(vault.baseTs)){
+    pushBusy=false;pushPending=false;
+    setConflict('Nicht hochgeladen: der Cloud-Bestand ist neuer (anderes Gerät). Bitte oben entscheiden.');
+    return;
+  }
   var res=await supabaseUpsertRow({key_id:vault.keyId,payload:JSON.stringify(vault)});
   pushBusy=false;
-  if(pushPending){pushPending=false;schedulePush();}
   if(res.ok){
+    if(!res.updatedAt){
+      var r2=await supabaseFetchRow(vault.keyId); // Serverzeit nachholen (Projekt ohne Rückgabe)
+      res.updatedAt=r2.updatedAt||0;
+    }
+    markSynced(res.updatedAt,lastPlain);
     lastSync={at:Date.now(),ok:true,msg:'In Supabase gespeichert ('+new Date().toLocaleTimeString('de-DE')+')'};
   }else{
     lastSync={at:Date.now(),ok:false,msg:'Offline/Fehler – sicher verschlüsselt nur lokal gespeichert'};
   }
+  if(pushPending){pushPending=false;schedulePush();}
   renderSupabaseStatus();
 }
 
@@ -763,23 +848,47 @@ function restFetch(url,opts,ms){
   var fails=new Promise(function(res,rej){setTimeout(function(){rej(new Error('Timeout'));},ms||7000);});
   return Promise.race([fetch(url,opts),fails]);
 }
+function serverTs(row){var t=Date.parse((row&&row.updated_at)||'');return isFinite(t)?t:0;}
 async function supabaseFetchRow(keyId){
+  var sel='?select=key_id,payload,updated_at&key_id=eq.'+encodeURIComponent(keyId);
   try{
-    var res=await restFetch(restBase()+'?select=key_id,payload&key_id=eq.'+encodeURIComponent(keyId),{headers:restHeaders(false)});
-    if(!res.ok)return {ok:false,error:'HTTP '+res.status};
+    var res=await restFetch(restBase()+sel,{headers:restHeaders(false)});
+    if(!res.ok){
+      // Projekt ohne Spalte updated_at: ohne Serverzeit weiterarbeiten
+      var res2=await restFetch(restBase()+'?select=key_id,payload&key_id=eq.'+encodeURIComponent(keyId),{headers:restHeaders(false)});
+      if(!res2.ok)return {ok:false,error:'HTTP '+res2.status};
+      var rows2=await res2.json();
+      return {ok:true,row:Array.isArray(rows2)&&rows2.length?rows2[0]:null,updatedAt:0};
+    }
     var rows=await res.json();
-    return {ok:true,row:Array.isArray(rows)&&rows.length?rows[0]:null};
+    var row=Array.isArray(rows)&&rows.length?rows[0]:null;
+    remoteUpdatedAt=serverTs(row);
+    return {ok:true,row:row,updatedAt:remoteUpdatedAt};
   }catch(e){return {ok:false,error:'Netzwerkfehler'};}
 }
 async function supabaseUpsertRow(row){
+  var url=restBase()+'?on_conflict=key_id';
+  var body=JSON.stringify(row);
   try{
-    var res=await restFetch(restBase()+'?on_conflict=key_id',{
+    // Mit Rückgabe (return=representation): liefert die Serverzeit (updated_at).
+    var res=await restFetch(url+'&select=updated_at',{
+      method:'POST',
+      headers:Object.assign(restHeaders(true),{'Prefer':'resolution=merge-duplicates,return=representation'}),
+      body:body
+    });
+    if(res.ok){
+      var ts=0;
+      try{var rows=await res.json();if(Array.isArray(rows)&&rows.length)ts=serverTs(rows[0]);}catch(e2){ts=0;}
+      return {ok:true,updatedAt:ts};
+    }
+    // Fallback: Projekt ohne Lese-Recht auf vault -> ohne Rückgabe speichern
+    var res2=await restFetch(url,{
       method:'POST',
       headers:Object.assign(restHeaders(true),{'Prefer':'resolution=merge-duplicates,return=minimal'}),
-      body:JSON.stringify(row)
+      body:body
     });
-    if(!res.ok)return {ok:false,error:'HTTP '+res.status};
-    return {ok:true};
+    if(!res2.ok)return {ok:false,error:'HTTP '+res2.status};
+    return {ok:true,updatedAt:0};
   }catch(e){return {ok:false,error:'Netzwerkfehler'};}
 }
 async function supabaseDeleteRow(keyId){
@@ -845,10 +954,11 @@ async function tryUnlock(pw,opts){
     }catch(e){localBlob=null;}
   }
 
-  var remotePlain=null,remoteBlob=null;
+  var remotePlain=null,remoteBlob=null,remoteTs=0;
   if(supabaseConfigured()){
     var r=await supabaseFetchRow(syncKeyId);
     if(r.ok&&r.row){
+      remoteTs=r.updatedAt||0;
       try{
         remoteBlob=JSON.parse(r.row.payload);
         if(remoteBlob&&remoteBlob.v===1)remotePlain=await openPayload(pw,remoteBlob);
@@ -871,27 +981,31 @@ async function tryUnlock(pw,opts){
     return false;
   }
 
-  var tookRemote=false,tookLocal=false;
+  var tookRemote=false,tookLocal=false,decision=null;
   if(remotePlain!==null&&remoteBlob){
-    var rTs=Number(remoteBlob.savedAt||0);
-    var lTs=localBlob?Number(localBlob.savedAt||0):0;
-    if(localPlain===null||rTs>lTs){tookRemote=true;}
-    else{tookLocal=true;}
+    decision=syncDecision(localBlob,localPlain,remoteBlob,remotePlain,remoteTs);
+    if(decision.action==='take-remote'){tookRemote=true;}else{tookLocal=true;}
   }else if(localPlain!==null){
     tookLocal=true;
   }
+  syncConflict=!!(decision&&decision.action==='conflict');
 
   if(tookRemote){
     applyPlain(remotePlain);
-    vault=remoteBlob;
+    vault=remoteBlob;lastPlain=remotePlain;
     try{localStorage.setItem(VAULT_LS,JSON.stringify(remoteBlob));}catch(e){}
+    markSynced(remoteTs,remotePlain);
     lastSync={at:Date.now(),ok:true,msg:'Bestand aus Supabase geladen ('+new Date().toLocaleTimeString('de-DE')+')'};
   }else if(tookLocal){
     applyPlain(localPlain);
-    vault=localBlob;
+    vault=localBlob;lastPlain=localPlain;
+    if(decision&&decision.action==='equal')markSynced(remoteTs,localPlain);
+    if(decision&&decision.action==='conflict'){
+      setConflict('Cloud-Bestand weicht von diesem Gerät ab – oben „Cloud-Stand laden" oder „Lokalen Stand hochladen" wählen.');
+    }
   }else{
     migrateLegacy(); // alte Klartext-Daten ggf. in den neuen Bestand übernehmen
-    vault=null;
+    vault=null;lastPlain=statePlaintext();
   }
   unlocked=true;
   if(rememberSession()){try{localStorage.setItem(SYNC_PW_LS,pw);}catch(e){}}
@@ -940,21 +1054,33 @@ async function bootFlow(){
   gateSetMode(supabaseConfigured()?(cloudMode==='default'?'team':'custom'):(defaultCloudReady()?'team':'custom'));
 }
 async function autoSyncQuiet(){
-  if(!unlocked||!supabaseConfigured())return;
+  if(!unlocked||!supabaseConfigured()||autoSyncBusy)return;
+  autoSyncBusy=true;
   var r=await supabaseFetchRow(syncKeyId);
-  if(!r.ok||!r.row)return;
+  if(!r.ok||!r.row){autoSyncBusy=false;return;}
   var rb;
-  try{rb=JSON.parse(r.row.payload);}catch(e){return;}
-  if(!rb||rb.v!==1)return;
-  if(Number(rb.savedAt||0)<=Number(vault?vault.savedAt||0:0))return;
+  try{rb=JSON.parse(r.row.payload);}catch(e){autoSyncBusy=false;return;}
+  if(!rb||rb.v!==1){autoSyncBusy=false;return;}
   var plain=await openPayload(syncPassword,rb);
-  if(plain===null)return;
-  applyPlain(plain);
-  vault=rb;
-  try{localStorage.setItem(VAULT_LS,JSON.stringify(rb));}catch(e){}
-  persist();
-  renderAll();
-  lastSync={at:Date.now(),ok:true,msg:'Mit Supabase abgeglichen ('+new Date().toLocaleTimeString('de-DE')+')'};
+  if(plain===null){autoSyncBusy=false;return;}
+  var d=syncDecision(vault,lastPlain,rb,plain,r.updatedAt);
+  if(d.action==='take-remote'){
+    applyPlain(plain);
+    vault=rb;lastPlain=plain;
+    try{localStorage.setItem(VAULT_LS,JSON.stringify(rb));}catch(e){}
+    markSynced(r.updatedAt,plain);
+    syncConflict=false;
+    persist();
+    renderAll();
+    lastSync={at:Date.now(),ok:true,msg:'Mit Supabase abgeglichen ('+new Date().toLocaleTimeString('de-DE')+')'};
+  }else if(d.action==='equal'){
+    markSynced(r.updatedAt,plain);
+    syncConflict=false;
+    lastSync={at:Date.now(),ok:true,msg:'Mit Supabase abgeglichen ('+new Date().toLocaleTimeString('de-DE')+')'};
+  }else if(d.action==='conflict'){
+    setConflict('Cloud-Bestand weicht von diesem Gerät ab – oben „Cloud-Stand laden" oder „Lokalen Stand hochladen" wählen.');
+  }
+  autoSyncBusy=false;
   renderSupabaseStatus();
 }
 async function syncNow(){
@@ -968,24 +1094,33 @@ async function syncNow(){
     toast('⚠️ Synchronisation fehlgeschlagen');
     return;
   }
-  if(!r.row){pushVault();toast('☁️ Lokaler Bestand nach Supabase hochgeladen');return;}
+  if(!r.row){syncConflict=false;pushVault();toast('☁️ Lokaler Bestand nach Supabase hochgeladen');return;}
   var rb;
   try{rb=JSON.parse(r.row.payload);}catch(e){toast('⚠️ Ungültiger Supabase-Bestand');return;}
-  var remoteTs=rb&&rb.v===1?Number(rb.savedAt||0):0;
-  var localTs=vault?Number(vault.savedAt||0):0;
-  if(rb&&rb.v===1&&remoteTs>localTs){
-    var plain=await openPayload(syncPassword,rb);
-    if(plain===null){toast('⚠️ Supabase-Bestand nicht entschlüsselbar');return;}
+  var plain=rb&&rb.v===1?await openPayload(syncPassword,rb):null;
+  if(plain===null){toast('⚠️ Supabase-Bestand nicht entschlüsselbar');return;}
+  var d=syncDecision(vault,lastPlain,rb,plain,r.updatedAt);
+  if(d.action==='take-remote'){
     applyPlain(plain);
-    vault=rb;
+    vault=rb;lastPlain=plain;
+    try{localStorage.setItem(VAULT_LS,JSON.stringify(rb));}catch(e){}
+    markSynced(r.updatedAt,plain);
+    syncConflict=false;
     persist();
-    lastSync={at:Date.now(),ok:true,msg:'Neuerer Bestand aus Supabase übernommen'};
-    toast('☁️ Neuerer Bestand aus Supabase übernommen');
-  }else if(localTs>remoteTs){
-    pushVault();
-    toast('☁️ Neuerer lokaler Bestand hochgeladen');
-  }else{
+    lastSync={at:Date.now(),ok:true,msg:'Cloud-Bestand übernommen ('+new Date().toLocaleTimeString('de-DE')+')'};
+    toast('☁️ Cloud-Bestand übernommen ('+d.why+')');
+  }else if(d.action==='equal'){
+    markSynced(r.updatedAt,plain);
+    syncConflict=false;
+    lastSync={at:Date.now(),ok:true,msg:'Beide Bestände sind aktuell'};
     toast('ℹ️ Beide Bestände sind aktuell');
+  }else if(d.action==='keep-local'){
+    syncConflict=false;
+    pushVault();
+    toast('☁️ Lokaler Bestand hochgeladen');
+  }else{
+    setConflict('Cloud und lokal weichen ab – bitte „☁️ Cloud-Stand laden" oder „⬆️ Lokalen Stand hochladen" wählen.');
+    toast('⚠️ Nichts geändert: Cloud und lokal weichen ab');
   }
   renderAll();
   renderSupabaseStatus();
@@ -1012,14 +1147,19 @@ function fillSupabaseForm(){
   var u=$('#supabase-url');if(u)u.value=supabaseUrl;
   var a=$('#supabase-anon');if(a)a.value=supabaseAnon;
 }
+function fmtClock(ts){return ts?new Date(ts).toLocaleString('de-DE'):'–';}
 function renderSupabaseStatus(){
   var el=$('#supabase-status');if(!el)return;
   if(!supabaseConfigured()){
     el.innerHTML='Status: <b>nur lokal verschlüsselt</b> – Supabase noch nicht konfiguriert.<br><span style="font-size:12px">Daten werden auf diesem Gerät AES-256-GCM-verschlüsselt gespeichert, aber nicht hochgeladen.</span>';
-  }else{
-    var mode=cloudMode==='default'?'Standard-Verbindung (Team)':'eigene Verbindung';
-    el.innerHTML='Status: <b class="key-ok">verbunden</b> · '+esc(mode)+(unlocked&&syncKeyId?' · Key-ID: <code>'+esc(syncKeyId.slice(0,10))+'…</code>':'')+'<br><span style="font-size:12px">'+esc(lastSync.msg)+(lastSync.ok===true?' ✓':(lastSync.ok===false?' ⚠️':''))+'</span>';
+    return;
   }
+  var mode=cloudMode==='default'?'Standard-Verbindung (Team)':'eigene Verbindung';
+  var html='Status: <b class="key-ok">verbunden</b> · '+esc(mode)+(unlocked&&syncKeyId?' · Key-ID: <code>'+esc(syncKeyId.slice(0,10))+'…</code>':'');
+  html+='<br><span style="font-size:12px">'+esc(lastSync.msg)+(lastSync.ok===true?' ✓':(lastSync.ok===false?' ⚠️':''))+'</span>';
+  html+='<br><span style="font-size:12px">lokal: '+esc(fmtClock(vault?Number(vault.savedAt||0):0))+' · Cloud: '+esc(fmtClock(remoteUpdatedAt))+'</span>';
+  if(syncConflict)html+='<br><span style="font-size:12px" class="key-warn">⚠️ Cloud und lokal weichen ab – bitte „☁️ Cloud-Stand laden" oder „⬆️ Lokalen Stand hochladen" wählen.</span>';
+  el.innerHTML=html;
 }
 function renderSessionStatus(){
   var el=$('#session-status');if(!el)return;
@@ -1045,6 +1185,49 @@ async function deleteRemoteNow(){
   if(res.ok){lastSync={at:Date.now(),ok:null,msg:'Supabase-Bestand gelöscht'};toast('🗑️ Supabase-Bestand gelöscht');}
   else{toast('⚠️ Löschen fehlgeschlagen ('+res.error+')');}
   renderSupabaseStatus();
+}
+
+/* Bewusster, erzwingender Abgleich in beide Richtungen – nötig, wenn die
+   Erkennung nicht entscheiden kann, welche Seite die richtige ist. */
+async function cloudPullNow(){
+  if(!unlocked||!supabaseConfigured()){toast('⚠️ Keine konfigurierte Supabase-Verbindung');return;}
+  if(!confirm('Cloud-Stand laden und den lokalen Stand auf diesem Gerät damit überschreiben?'))return;
+  var r=await supabaseFetchRow(syncKeyId);
+  if(!r.ok){toast('⚠️ Abruf fehlgeschlagen ('+r.error+')');return;}
+  if(!r.row){toast('⚠️ Kein Cloud-Bestand vorhanden');return;}
+  var rb;
+  try{rb=JSON.parse(r.row.payload);}catch(e){rb=null;}
+  var plain=rb&&rb.v===1?await openPayload(syncPassword,rb):null;
+  if(plain===null){toast('⚠️ Cloud-Bestand nicht entschlüsselbar');return;}
+  applyPlain(plain);
+  vault=rb;lastPlain=plain;
+  try{localStorage.setItem(VAULT_LS,JSON.stringify(rb));}catch(e){}
+  markSynced(r.updatedAt,plain);
+  syncConflict=false;
+  persist();
+  renderAll();
+  lastSync={at:Date.now(),ok:true,msg:'Cloud-Stand geladen ('+new Date().toLocaleTimeString('de-DE')+')'};
+  renderSupabaseStatus();
+  toast('☁️ Cloud-Stand geladen');
+}
+async function cloudPushNow(){
+  if(!unlocked||!supabaseConfigured()||!vault){toast('⚠️ Keine konfigurierte Supabase-Verbindung');return;}
+  if(!confirm('Lokalen Stand dieses Geräts nach Supabase hochladen und den Cloud-Bestand damit überschreiben?'))return;
+  if(pushBusy){toast('⏳ Synchronisation läuft – kurz warten');return;}
+  pushBusy=true;
+  var plain=statePlaintext();
+  var blob=await sealLocal(plain);
+  var res=await supabaseUpsertRow({key_id:blob.keyId,payload:JSON.stringify(blob)});
+  pushBusy=false;
+  if(!res.ok){toast('⚠️ Hochladen fehlgeschlagen ('+res.error+')');return;}
+  if(!res.updatedAt){var r=await supabaseFetchRow(syncKeyId);res.updatedAt=r.updatedAt||0;}
+  vault=blob;lastPlain=plain;
+  try{localStorage.setItem(VAULT_LS,JSON.stringify(blob));}catch(e){}
+  markSynced(res.updatedAt,plain);
+  syncConflict=false;
+  lastSync={at:Date.now(),ok:true,msg:'Lokaler Stand hochgeladen ('+new Date().toLocaleTimeString('de-DE')+')'};
+  renderSupabaseStatus();
+  toast('⬆️ Lokaler Stand hochgeladen');
 }
 
 /* ---------- 🔒 Standard-Verbindung (Team): Passwortprüfung & Aktivierung ---------- */
@@ -1784,6 +1967,7 @@ function updateElo(teamA,teamB,scoreA,scoreB){
   var delta=K*(actualA-expectedA);
   teamA.forEach(function(p){p.elo+=delta;});
   teamB.forEach(function(p){p.elo-=delta;});
+  return delta;
 }
 
 var PRESET_VALUES=[15,16,17,18,19,20,21];
@@ -1856,9 +2040,10 @@ function saveMatch(){
   var byId=function(id){return state.players.find(function(p){return p.id===id;});};
   var teamA=selection.slice(0,2).map(byId);
   var teamB=selection.slice(2,4).map(byId);
-  var beforeA=rOf(teamA);
-  updateElo(teamA,teamB,a,b);
-  var deltaRaw=teamA[0].elo-beforeA;
+  // delta direkt aus der Elo-Formel (vorher: teamA[0].elo - rOf(teamA) – das
+  // enthielt zusätzlich die halbe Elo-Differenz der beiden Teamspieler und
+  // rechnete beim Löschen eines Matches das Elo falsch zurück)
+  var deltaRaw=updateElo(teamA,teamB,a,b);
   var delta=Math.round(deltaRaw);
   state.matches.push({id:mid(),teamA:selection.slice(0,2),teamB:selection.slice(2,4),scoreA:a,scoreB:b,ts:Date.now(),eventId:state.activeEventId,delta:deltaRaw,points:detailPoints.slice()});
   persist();
@@ -2029,8 +2214,22 @@ $('#gate-custom-btn').addEventListener('click',gateCustomSubmit);
 $('#gate-custom-password').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();gateCustomSubmit();}});
 $('#supabase-form').addEventListener('submit',function(e){e.preventDefault();saveSupabaseConfig();});
 $('#sync-now-btn').addEventListener('click',syncNow);
+$('#cloud-pull-btn').addEventListener('click',cloudPullNow);
+$('#cloud-push-btn').addEventListener('click',cloudPushNow);
 $('#session-switch-btn').addEventListener('click',switchSession);
 $('#session-delete-btn').addEventListener('click',deleteRemoteNow);
+
+/* Vordergrund-Abgleich: kommt Tab/App wieder in den Vordergrund, prüfen wir, ob
+   die Cloud neuer ist und laden sie (nur laden – nie hochladen). So zeigt auch
+   ein lange geöffnetes Gerät den aktuellen Stand, ohne neu geladen zu werden. */
+document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState!=='visible')return;
+  if(!unlocked||!supabaseConfigured())return;
+  var now=Date.now();
+  if(now-lastAutoSyncAt<5000)return;
+  lastAutoSyncAt=now;
+  autoSyncQuiet();
+});
 
 /* PWA: Service Worker nur bei http(s)-Hosting registrieren (offline-fähig + installierbar).
    updateViaCache:'none' → sw.js wird immer frisch vom Netz geholt, damit Updates erkannt werden.

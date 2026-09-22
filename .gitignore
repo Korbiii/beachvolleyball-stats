@@ -8,3 +8,9 @@ Thumbs.db
 # Python (tools/)
 __pycache__/
 *.pyc
+
+# Lokale Rohdaten / Importe – niemals ins Repo
+# (CSV aus Vorjahren, JSON-Exporte & generierte Import-Dateien)
+*.csv
+beachvolleyball-stats-*.json
+local/
