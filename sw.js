@@ -2,7 +2,7 @@
    Strategie: App-Shell (index.html) network-first → bei Internet immer die
    frische Version (Updates werden automatisch übernommen), offline Cache-Fallback.
    Übrige Assets (Icons, Manifest …): cache-first. */
-var CACHE = 'bv-stats-v3';
+var CACHE = 'bv-stats-v6';
 var ASSETS = ['./', './index.html', './manifest.json', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function (e) {

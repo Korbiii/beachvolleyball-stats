@@ -4,3 +4,7 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Python (tools/)
+__pycache__/
+*.pyc

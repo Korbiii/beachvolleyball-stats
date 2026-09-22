@@ -289,6 +289,29 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
   max-width:92%;text-align:center;transition:opacity .25s,transform .25s;
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+
+/* 🔐 Sperr-/Einrichtungs-Dialog (Ende-zu-Ende-Verschlüsselung) & Supabase */
+.overlay-gate{position:fixed;inset:0;z-index:80;background:rgba(35,50,60,.62);display:flex;align-items:center;justify-content:center}
+.unlock-modal{max-width:94%;max-height:90%}
+.unlock-key-input{width:100%;min-height:50px;border-radius:14px;border:1.5px solid var(--ocean);background:#fff;color:var(--ink);font-size:15px;padding:0 14px;word-break:break-all;font-variant-numeric:tabular-nums}
+.unlock-tabs{display:flex;gap:6px;margin:0 0 10px}
+.unlock-tabs .utab{flex:1;min-height:42px;border-radius:12px;border:1.5px solid #d9cdb4;background:#fbf3e0;color:var(--ink);font-weight:700;font-size:13.5px;cursor:pointer;padding:0 6px}
+.unlock-tabs .utab.on{background:var(--ocean);border-color:transparent;color:#fff}
+.unlock-remember{display:flex;gap:8px;align-items:center;margin:8px 0 2px;font-size:13.5px;font-weight:600;color:var(--ink);cursor:pointer}
+.unlock-remember input{width:18px;height:18px;accent-color:var(--ocean)}
+.unlock-error{color:#b03f2a;background:#fff0ec;border:1px solid #eac6bb;border-radius:12px;padding:9px 12px;font-size:13px;line-height:1.45;margin:8px 0 0;display:none}
+.unlock-danger{font-size:12px;color:var(--muted);margin:8px 0 0;line-height:1.4}
+.session-row{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 0}
+.session-row .btn{flex:1 1 150px}
+.key-ok{color:var(--ocean);font-weight:700}
+.key-warn{color:#b03f2a;font-weight:700}
+.setup-details{margin:12px 0 0}
+.setup-details summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--ocean);padding:6px 0}
+.sql-box{display:block;white-space:pre;overflow-x:auto;background:#f1e7d2;color:#24323b;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:11.5px;line-height:1.5;margin:8px 0 4px}
+.team-box{border:1.5px solid var(--ocean-soft);background:#f2f8fb;border-radius:14px;padding:12px 12px 10px;margin:0 0 4px}
+.team-box h3{font-size:13.5px;font-weight:800;margin:0 0 6px;color:var(--ocean)}
+.team-badge{display:inline-block;font-size:10.5px;font-weight:800;border-radius:6px;padding:1px 6px;vertical-align:middle;background:var(--ocean-soft);color:var(--ocean)}
+.team-badge.na{background:#f1e7d2;color:#8a7a4f}
 </style>
 </head>
 <body>
@@ -441,6 +464,47 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
         <input type="file" id="import-file" accept=".json,application/json" style="display:none">
       </div>
     </div>
+    <div class="card">
+      <h2>🔐 Verschlüsselte Synchronisation (Supabase)</h2>
+      <p class="hint">Alle Daten werden <b>vor</b> dem Speichern mit <b>AES-256-GCM</b> verschlüsselt und erst dann nach <b>Supabase</b> übertragen. Alle Geräte mit demselben <b>Passwort</b> teilen denselben Bestand – ohne Passwort ist Lesen und Bearbeiten unmöglich, auch für Supabase selbst.</p>
+      <div class="team-box" id="team-box">
+        <h3>🔒 Verbindung <span class="team-badge" id="team-badge">…</span></h3>
+        <p class="hint" id="supabase-status" style="margin:8px 0 0"></p>
+        <p class="hint" id="session-status" style="margin:8px 0 0"></p>
+      </div>
+      <div class="session-row">
+        <button type="button" class="btn btn-ghost" id="sync-now-btn">🔁 Jetzt synchronisieren</button>
+        <button type="button" class="btn btn-ghost" id="session-switch-btn">🔑 Passwort wechseln</button>
+        <button type="button" class="btn btn-accent" id="session-delete-btn">🗑️ Bestand löschen</button>
+      </div>
+      <details class="setup-details">
+        <summary>🌐 Eigene Verbindung ändern</summary>
+        <p class="hint" style="margin:8px 0">Für ein eigenes Supabase-Projekt: URL + Publishable-Key eintragen, danach das <b>gemeinsame Passwort</b> im Dialog eingeben.</p>
+        <form id="supabase-form" class="row-form" autocomplete="off">
+          <input id="supabase-url" type="text" inputmode="url" placeholder="https://xxxx.supabase.co" aria-label="Supabase-Projekt-URL">
+          <input id="supabase-anon" type="text" placeholder="Publishable / Anon API-Key (kein Secret&nbsp;❌)" aria-label="Supabase Anon-Key" autocomplete="off">
+          <button class="btn btn-ghost btn-block" type="submit">💾 Zugang speichern &amp; verbinden</button>
+        </form>
+      </details>
+      <details class="setup-details">
+        <summary>📖 Supabase einrichten (einmalig, SQL im SQL-Editor ausführen)</summary>
+        <pre class="sql-box">create table if not exists vault (
+  key_id text primary key,
+  payload text not null,
+  updated_at timestamptz not null default now()
+);
+alter table vault enable row level security;
+drop policy if exists "vault anon read" on vault;
+drop policy if exists "vault anon insert" on vault;
+drop policy if exists "vault anon update" on vault;
+create policy "vault anon read" on vault for select using (true);
+create policy "vault anon insert" on vault for insert with check (true);
+create policy "vault anon update" on vault for update using (true) with check (true);
+
+-- Die Daten sind Ende-zu-Ende-verschlüsselt (AES-256-GCM).
+-- Nur wer das gemeinsame Passwort kennt, kann sie lesen/bearbeiten.</pre>
+      </details>
+    </div>
   </section>
 </main>
 
@@ -459,6 +523,31 @@ input[type=text]:focus{border-color:var(--ocean);box-shadow:0 0 0 3px rgba(22,12
   </div>
 </div>
 
+<div class="overlay-gate" id="unlock-overlay" style="display:none">
+  <div class="modal unlock-modal">
+    <h3>🔐 Synchronisation</h3>
+    <p class="hint">Alle Geräte mit demselben <b>Passwort</b> teilen denselben verschlüsselten Bestand. Das Passwort wird nie übertragen – ohne es sind die Daten unlesbar, auch für Supabase.</p>
+    <div class="unlock-tabs" id="gate-tabs">
+      <button type="button" class="utab on" id="gate-tab-team">🔒 Team</button>
+      <button type="button" class="utab" id="gate-tab-custom">🌐 Eigene Verbindung</button>
+    </div>
+    <div id="gate-team">
+      <input type="password" class="unlock-key-input" id="gate-team-password" placeholder="Team-Passwort" autocomplete="off" aria-label="Team-Passwort">
+      <button type="button" class="btn btn-primary btn-block" id="gate-team-btn" style="margin-top:10px">🔓 Entsperren</button>
+    </div>
+    <div id="gate-custom" style="display:none">
+      <p class="hint" style="margin:0 0 8px">Eigenes Supabase-Projekt: URL + Publishable-Key und ein <b>gemeinsames Passwort</b> – alle Geräte nutzen dasselbe Passwort.</p>
+      <input type="text" class="unlock-key-input" id="gate-custom-url" inputmode="url" placeholder="https://xxxx.supabase.co" style="margin-bottom:8px" aria-label="Supabase-Projekt-URL">
+      <input type="text" class="unlock-key-input" id="gate-custom-anon" placeholder="Publishable / Anon API-Key (kein Secret)" style="margin-bottom:8px" autocomplete="off" aria-label="Supabase Anon-Key">
+      <input type="password" class="unlock-key-input" id="gate-custom-password" placeholder="Gemeinsames Passwort" autocomplete="off" aria-label="Gemeinsames Passwort">
+      <button type="button" class="btn btn-primary btn-block" id="gate-custom-btn" style="margin-top:10px">💾 Verbinden</button>
+    </div>
+    <label class="unlock-remember" style="margin:12px 0 2px"><input type="checkbox" id="unlock-remember" checked> Auf diesem Gerät merken (kein erneutes Eingeben beim Start)</label>
+    <p class="unlock-error" id="unlock-error"></p>
+    <p class="hint unlock-danger" style="margin:8px 0 0">Ohne das Passwort sind die Daten unwiederbringlich verloren.</p>
+  </div>
+</div>
+
 <div class="toast" role="status"></div>
 <noscript><p style="color:#9a927f;text-align:center;padding:12px">Diese App benötigt JavaScript.</p></noscript>
 <script>
@@ -468,6 +557,48 @@ var LS_PLAYERS='bv.players.v1';
 var LS_MATCHES='bv.matches.v1';
 var LS_EVENTS='bv.events.v1';
 var LS_ACTIVE='bv.active.v1';
+var VAULT_LS='bv.vault.v2';
+var SYNC_PW_LS='bv.syncpw.v1'; // gemerktes gemeinsames Passwort (optional)
+var LEGACY_SESSION_LS='bv.session.v1';
+var LEGACY_VAULT_LS='bv.vault.v1';
+var CFG_URL_KEY='bv.supabaseUrl.v1';
+var CFG_ANON_KEY='bv.supabaseAnon.v1';
+var legacyMigrated=false;
+var syncPassword=null;
+var syncKeyId='';
+var unlocked=false;
+var vault=null;
+var supabaseUrl='';
+var supabaseAnon='';
+var lastSync={at:0,ok:null,msg:'Noch nicht synchronisiert'};
+var vaultChain=Promise.resolve();
+var pushBusy=false,pushPending=false,pushTimer=null;
+var CLOUD_MODE_LS='bv.cloudMode.v1';
+var cloudMode='';
+
+/* =====================================================================
+   🔒 STANDARD-VERBINDUNG (TEAM) – passwortgeschützter Default-Zugang
+   ---------------------------------------------------------------------
+   u/k = base64url verschleierte Standard-Projekt-URL und der Publishable-Key.
+   p   = Passwort-Verifier: pbkdf2$<iter>$<saltB64u>$<hashB64u>
+
+   Erzeugen (einmalig, lokal):
+       python3 tools/make-team-config.py
+   und die drei Werte hier einsetzen. Bleiben sie leer, zeigt die App nur die
+   „Eigene Verbindung" und jede/r richtet die eigene Verbindung ein.
+
+   WICHTIG / ehrlich: In einer statischen App ist der Quelltext öffentlich –
+   diese Werte sind nur verschleiert und das Passwort ist nur eine Hürde,
+   KEIN Geheimnis. Das ist unproblematisch, weil (a) der Publishable-Key ein
+   öffentlicher Schlüssel ist (Schutz über RLS) und (b) alle Daten mit dem
+   gemeinsamen Passwort Ende-zu-Ende verschlüsselt sind. Niemals den
+   service_role-/Secret-Key hier eintragen!
+   ===================================================================== */
+var DEFAULT_CLOUD={
+  u:'aHR0cHM6Ly9iZnh2bG90aWZ2ZWRpaGNzZ3RlYy5zdXBhYmFzZS5jbw',
+  k:'c2JfcHVibGlzaGFibGVfN3BRbGNMN3VWcDVtczl5aUFpeHEtZ182NGl0UlRqRg',
+  p:'pbkdf2$150000$oPTrr-kRAVuwaWrY77z_WA$A0Msb-_jjsghkZ99t5vwYw_eFMTs30IOK-Xv1howCi0'
+};
 var K=32;
 var state={players:[],matches:[],events:[],activeEventId:''};
 var selection=[];
@@ -507,29 +638,473 @@ function euid(){return 'e'+Date.now().toString(36)+Math.random().toString(36).sl
 function mid(){return 'm'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);}
 
 function load(){
+  migrateLegacy(); // einmaliger Umzug alter localStorage-Keys in den verschlüsselten Vault
+}
+
+/* ---------- Kryptografie: AES-256-GCM über Web Crypto (kein externes Package) ---------- */
+var PBKDF2_ITER=310000;      // Arbeit für die Datenverschlüsselung (pro Blob-Salt)
+var PBKDF2_ID_ITER=310000;   // Arbeit für die Ableitung der key_id aus dem Passwort
+var KEYID_SALT='bv-stats/keyid/v1';
+var enc=new TextEncoder();
+var dec=new TextDecoder();
+function b64u(buf){
+  var u=new Uint8Array(buf),s='',i=0,chunk=0x8000;
+  while(i<u.length){s+=String.fromCharCode.apply(null,u.slice(i,i+chunk));i+=chunk;}
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function unb64u(s){
+  s=s.replace(/-/g,'+').replace(/_/g,'/');
+  while(s.length%4)s+='=';
+  return Uint8Array.from(atob(s),function(c){return c.charCodeAt(0);});
+}
+async function pbkdf2Bits(secret,salt,iters,lenBits){
+  var km=await crypto.subtle.importKey('raw',enc.encode(secret),{name:'PBKDF2'},false,['deriveBits']);
+  return crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:salt,iterations:iters},km,lenBits);
+}
+async function deriveAesKey(secret,saltB64,iters){
+  var bits=await pbkdf2Bits(secret,unb64u(saltB64),iters||PBKDF2_ITER,256);
+  return crypto.subtle.importKey('raw',bits,{name:'AES-GCM'},false,['encrypt','decrypt']);
+}
+/* Gemeinsames Passwort -> deterministische key_id: gleiches Passwort = gleiche Zeile/Salt auf allen Geräten. */
+async function keyIdFor(secret){
+  var bits=await pbkdf2Bits(secret,enc.encode(KEYID_SALT),PBKDF2_ID_ITER,256);
+  return b64u(bits);
+}
+async function sealPayload(secret,plain){
+  if(typeof plain!=='string')plain=JSON.stringify(plain);
+  var salt=crypto.getRandomValues(new Uint8Array(16));
+  var key=await deriveAesKey(secret,b64u(salt),PBKDF2_ITER);
+  var iv=crypto.getRandomValues(new Uint8Array(12));
+  var cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,enc.encode(plain));
+  return {v:1,iter:PBKDF2_ITER,salt:b64u(salt),iv:b64u(iv),cipher:b64u(cipher)};
+}
+async function openPayload(secret,blob){
   try{
-    state.players=JSON.parse(localStorage.getItem(LS_PLAYERS)||'[]');
-    state.matches=JSON.parse(localStorage.getItem(LS_MATCHES)||'[]');
-    state.events=JSON.parse(localStorage.getItem(LS_EVENTS)||'[]');
-  }catch(e){state.players=[];state.matches=[];state.events=[];}
-  if(!Array.isArray(state.players))state.players=[];
-  if(!Array.isArray(state.matches))state.matches=[];
-  if(!Array.isArray(state.events))state.events=[];
-  state.activeEventId=localStorage.getItem(LS_ACTIVE)||'';
+    var key=await deriveAesKey(secret,blob.salt,blob.iter||PBKDF2_ITER);
+    var plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64u(blob.iv)},key,unb64u(blob.cipher));
+    return dec.decode(plain);
+  }catch(e){return null;}
+}
+
+/* ---------- Klartext <-> Zustand, Migration alter Daten ---------- */
+function statePlaintext(){
+  return JSON.stringify({app:'beachvolleyball-stats',v:1,ts:Date.now(),players:state.players,matches:state.matches,events:state.events,activeEventId:state.activeEventId});
+}
+function applyPlain(plain){
+  var d;
+  try{d=JSON.parse(plain);}catch(e){d=null;}
+  if(!d||!Array.isArray(d.players)||!Array.isArray(d.matches)||!Array.isArray(d.events))return false;
+  state.players=d.players;
+  state.matches=d.matches;
+  state.events=d.events;
+  state.activeEventId=typeof d.activeEventId==='string'?d.activeEventId:'';
   if(state.activeEventId&&!state.events.find(function(e){return e.id===state.activeEventId;}))state.activeEventId='';
   if(!state.activeEventId&&state.events.length)state.activeEventId=state.events[0].id;
   var needPersist=false;
   state.matches.forEach(function(m){if(!m.id){m.id=mid();needPersist=true;}});
   if(needPersist)persist();
+  return true;
 }
+function migrateLegacy(){
+  if(legacyMigrated)return;
+  var p=localStorage.getItem(LS_PLAYERS),m=localStorage.getItem(LS_MATCHES),e=localStorage.getItem(LS_EVENTS);
+  if((p&&p!=='[]')||(m&&m!=='[]')||(e&&e!=='[]')){
+    try{
+      applyPlain(JSON.stringify({players:JSON.parse(p||'[]'),matches:JSON.parse(m||'[]'),events:JSON.parse(e||'[]'),activeEventId:localStorage.getItem(LS_ACTIVE)||''}));
+    }catch(err){}
+  }
+  [LS_PLAYERS,LS_MATCHES,LS_EVENTS,LS_ACTIVE].forEach(function(k){try{localStorage.removeItem(k);}catch(err){}});
+  legacyMigrated=true;
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function persist(){
-  try{
-    localStorage.setItem(LS_PLAYERS,JSON.stringify(state.players));
-    localStorage.setItem(LS_MATCHES,JSON.stringify(state.matches));
-    localStorage.setItem(LS_EVENTS,JSON.stringify(state.events));
-    localStorage.setItem(LS_ACTIVE,state.activeEventId||'');
-  }catch(e){toast('⚠️ Speichern fehlgeschlagen');}
+  if(!unlocked)return;
+  var plain=statePlaintext();
+  vaultChain=vaultChain.then(function(){return writeVault(plain);}).catch(function(err){});
 }
+async function writeVault(plain){
+  var blob=await sealPayload(syncPassword,plain);
+  blob.keyId=syncKeyId;
+  blob.savedAt=Date.now();
+  vault=blob;
+  try{localStorage.setItem(VAULT_LS,JSON.stringify(blob));}catch(e){}
+  schedulePush();
+}
+function schedulePush(){
+  if(pushTimer)clearTimeout(pushTimer);
+  pushTimer=setTimeout(function(){pushTimer=null;pushVault();},600);
+}
+async function pushVault(){
+  if(!unlocked||!supabaseConfigured()||!vault)return;
+  if(pushBusy){pushPending=true;return;}
+  pushBusy=true;
+  var res=await supabaseUpsertRow({key_id:vault.keyId,payload:JSON.stringify(vault)});
+  pushBusy=false;
+  if(pushPending){pushPending=false;schedulePush();}
+  if(res.ok){
+    lastSync={at:Date.now(),ok:true,msg:'In Supabase gespeichert ('+new Date().toLocaleTimeString('de-DE')+')'};
+  }else{
+    lastSync={at:Date.now(),ok:false,msg:'Offline/Fehler – sicher verschlüsselt nur lokal gespeichert'};
+  }
+  renderSupabaseStatus();
+}
+
+/* ---------- Supabase-REST (PostgREST; kein SDK nötig, offline-fähig) ---------- */
+function supabaseConfigured(){return !!supabaseUrl&&!!supabaseAnon;}
+function restHeaders(json){
+  // Publishable-/Secret-Keys gehören auf den apikey-Header; nur legacy JWT (anon/service_role) zusätzlich als Bearer.
+  var h={'apikey':supabaseAnon};
+  if(supabaseAnon&&supabaseAnon.indexOf('eyJ')===0)h['Authorization']='Bearer '+supabaseAnon;
+  if(json)h['Content-Type']='application/json';
+  return h;
+}
+function restBase(){return supabaseUrl.replace(/\/+$/,'')+'/rest/v1/vault';}
+function restFetch(url,opts,ms){
+  var fails=new Promise(function(res,rej){setTimeout(function(){rej(new Error('Timeout'));},ms||7000);});
+  return Promise.race([fetch(url,opts),fails]);
+}
+async function supabaseFetchRow(keyId){
+  try{
+    var res=await restFetch(restBase()+'?select=key_id,payload&key_id=eq.'+encodeURIComponent(keyId),{headers:restHeaders(false)});
+    if(!res.ok)return {ok:false,error:'HTTP '+res.status};
+    var rows=await res.json();
+    return {ok:true,row:Array.isArray(rows)&&rows.length?rows[0]:null};
+  }catch(e){return {ok:false,error:'Netzwerkfehler'};}
+}
+async function supabaseUpsertRow(row){
+  try{
+    var res=await restFetch(restBase()+'?on_conflict=key_id',{
+      method:'POST',
+      headers:Object.assign(restHeaders(true),{'Prefer':'resolution=merge-duplicates,return=minimal'}),
+      body:JSON.stringify(row)
+    });
+    if(!res.ok)return {ok:false,error:'HTTP '+res.status};
+    return {ok:true};
+  }catch(e){return {ok:false,error:'Netzwerkfehler'};}
+}
+async function supabaseDeleteRow(keyId){
+  try{
+    var res=await restFetch(restBase()+'?key_id=eq.'+encodeURIComponent(keyId),{
+      method:'DELETE',
+      headers:Object.assign(restHeaders(false),{'Prefer':'return=minimal'})
+    });
+    if(!res.ok)return {ok:false,error:'HTTP '+res.status};
+    return {ok:true};
+  }catch(e){return {ok:false,error:'Netzwerkfehler'};}
+}
+/* ---------- Gemeinsames Passwort: Sperr-/Einrichtungs-Dialog, Entsperren, Sync ---------- */
+function showUnlockOverlay(show){var el=$('#unlock-overlay');if(el)el.style.display=show?'':'none';}
+function gateSetMode(mode){
+  var hasTeam=defaultCloudReady();
+  if(!hasTeam)mode='custom';
+  var t=$('#gate-tab-team'),c=$('#gate-tab-custom');
+  if(t)t.classList.toggle('on',mode==='team');
+  if(c)c.classList.toggle('on',mode==='custom');
+  var team=$('#gate-team'),custom=$('#gate-custom');
+  if(team)team.style.display=(mode==='team')?'':'none';
+  if(custom)custom.style.display=(mode==='custom')?'':'none';
+  var tabs=$('#gate-tabs');if(tabs)tabs.style.display=hasTeam?'':'none';
+  var err=$('#unlock-error');if(err)err.style.display='none';
+  if(mode==='team'){var ip=$('#gate-team-password');if(ip)ip.focus();}
+  else{if($('#gate-custom-url')&&!$('#gate-custom-url').value){$('#gate-custom-url').value=supabaseUrl||'';$('#gate-custom-anon').value=supabaseAnon||'';}var cp=$('#gate-custom-password');if(cp)cp.focus();}
+}
+function unlockError(msg){var el=$('#unlock-error');el.textContent=msg;el.style.display='';}
+function rememberSession(){var el=$('#unlock-remember');return !!(el&&el.checked);}
+async function gateTeamSubmit(){
+  var pw=($('#gate-team-password').value||'').trim();
+  if(!pw){unlockError('Bitte das Team-Passwort eingeben.');return;}
+  await activateDefaultCloud(pw);
+}
+async function gateCustomSubmit(){
+  var u=($('#gate-custom-url').value||'').trim().replace(/\/+$/,'');
+  var a=($('#gate-custom-anon').value||'').trim();
+  var pw=($('#gate-custom-password').value||'');
+  if(!u||!a){unlockError('Projekt-URL und Publishable-Key eingeben.');return;}
+  if(u.indexOf('http')!==0)u='https://'+u;
+  if(!pw){unlockError('Bitte ein gemeinsames Passwort eingeben.');return;}
+  supabaseUrl=u;supabaseAnon=a;setCloudMode('custom');
+  try{localStorage.setItem(CFG_URL_KEY,u);localStorage.setItem(CFG_ANON_KEY,a);}catch(e){}
+  fillSupabaseForm();renderTeamBox();renderSupabaseStatus();
+  if(await tryUnlock(pw,{create:true}))toast('☁️ Verbindung aktiv');
+}
+
+async function tryUnlock(pw,opts){
+  opts=opts||{};
+  if(!pw){unlockError('Bitte das Passwort eingeben.');return false;}
+  syncPassword=pw;
+  syncKeyId=await keyIdFor(pw);
+  unlocked=false;
+
+  var localPlain=null,localBlob=null;
+  var lsVault=localStorage.getItem(VAULT_LS);
+  if(lsVault){
+    try{
+      localBlob=JSON.parse(lsVault);
+      if(localBlob&&localBlob.v===1)localPlain=await openPayload(pw,localBlob);
+      else{localBlob=null;}
+    }catch(e){localBlob=null;}
+  }
+
+  var remotePlain=null,remoteBlob=null;
+  if(supabaseConfigured()){
+    var r=await supabaseFetchRow(syncKeyId);
+    if(r.ok&&r.row){
+      try{
+        remoteBlob=JSON.parse(r.row.payload);
+        if(remoteBlob&&remoteBlob.v===1)remotePlain=await openPayload(pw,remoteBlob);
+        else{remoteBlob=null;}
+      }catch(e){remoteBlob=null;}
+    }else if(!r.ok){
+      lastSync={at:Date.now(),ok:false,msg:'Supabase nicht erreichbar – lokal entsperrt'};
+    }
+  }
+
+  // Ein Bestand ist vorhanden, lässt sich aber mit diesem Passwort nicht entschlüsseln.
+  if(remotePlain===null&&localPlain===null&&(remoteBlob||localBlob)){
+    unlockError('Passwort falsch – der vorhandene Bestand lässt sich damit nicht entschlüsseln.');
+    return false;
+  }
+  // Weder lokal noch in Supabase vorhanden: nur bei ausdrücklicher Neuanlage starten.
+  var fresh=!remoteBlob&&!localBlob;
+  if(fresh&&!opts.create){
+    unlockError('Kein geteilter Bestand gefunden. Prüfe das Passwort oder lege einen neuen an.');
+    return false;
+  }
+
+  var tookRemote=false,tookLocal=false;
+  if(remotePlain!==null&&remoteBlob){
+    var rTs=Number(remoteBlob.savedAt||0);
+    var lTs=localBlob?Number(localBlob.savedAt||0):0;
+    if(localPlain===null||rTs>lTs){tookRemote=true;}
+    else{tookLocal=true;}
+  }else if(localPlain!==null){
+    tookLocal=true;
+  }
+
+  if(tookRemote){
+    applyPlain(remotePlain);
+    vault=remoteBlob;
+    try{localStorage.setItem(VAULT_LS,JSON.stringify(remoteBlob));}catch(e){}
+    lastSync={at:Date.now(),ok:true,msg:'Bestand aus Supabase geladen ('+new Date().toLocaleTimeString('de-DE')+')'};
+  }else if(tookLocal){
+    applyPlain(localPlain);
+    vault=localBlob;
+  }else{
+    migrateLegacy(); // alte Klartext-Daten ggf. in den neuen Bestand übernehmen
+    vault=null;
+  }
+  unlocked=true;
+  if(rememberSession()){try{localStorage.setItem(SYNC_PW_LS,pw);}catch(e){}}
+  else{try{localStorage.removeItem(SYNC_PW_LS);}catch(e){}}
+  if(fresh)toast('☁️ Neuer geteilter Bestand angelegt');
+  persist(); // Zustand jetzt verschlüsselt sichern (lokal + in Supabase)
+  showUnlockOverlay(false);
+  renderAll();
+  switchTab('players');
+  renderSupabaseStatus();
+  renderSessionStatus();
+  renderTeamBox();
+  return true;
+}
+
+function loadCloudConfig(){
+  try{
+    supabaseUrl=localStorage.getItem(CFG_URL_KEY)||'';
+    supabaseAnon=localStorage.getItem(CFG_ANON_KEY)||'';
+    cloudMode=localStorage.getItem(CLOUD_MODE_LS)||'';
+  }catch(e){supabaseUrl='';supabaseAnon='';cloudMode='';}
+  if(supabaseUrl&&!cloudMode){cloudMode=(defaultCloudReady()&&supabaseUrl===defaultCloudUrl())?'default':'custom';}
+}
+function cleanupOldSession(){
+  try{
+    if(localStorage.getItem(LEGACY_SESSION_LS)||localStorage.getItem(LEGACY_VAULT_LS)){
+      localStorage.removeItem(LEGACY_SESSION_LS);
+      localStorage.removeItem(LEGACY_VAULT_LS);
+      setTimeout(function(){toast('ℹ️ Neues Synchronisations-Modell – bitte Passwort eingeben.');},1200);
+    }
+  }catch(e){}
+}
+async function bootFlow(){
+  cleanupOldSession();
+  loadCloudConfig();
+  fillSupabaseForm();
+  renderSupabaseStatus();
+  renderSessionStatus();
+  renderTeamBox();
+  var remembered=localStorage.getItem(SYNC_PW_LS);
+  if(remembered&&supabaseConfigured()&&await tryUnlock(remembered,{create:false})){
+    autoSyncQuiet();
+    return;
+  }
+  showUnlockOverlay(true);
+  gateSetMode(supabaseConfigured()?(cloudMode==='default'?'team':'custom'):(defaultCloudReady()?'team':'custom'));
+}
+async function autoSyncQuiet(){
+  if(!unlocked||!supabaseConfigured())return;
+  var r=await supabaseFetchRow(syncKeyId);
+  if(!r.ok||!r.row)return;
+  var rb;
+  try{rb=JSON.parse(r.row.payload);}catch(e){return;}
+  if(!rb||rb.v!==1)return;
+  if(Number(rb.savedAt||0)<=Number(vault?vault.savedAt||0:0))return;
+  var plain=await openPayload(syncPassword,rb);
+  if(plain===null)return;
+  applyPlain(plain);
+  vault=rb;
+  try{localStorage.setItem(VAULT_LS,JSON.stringify(rb));}catch(e){}
+  persist();
+  renderAll();
+  lastSync={at:Date.now(),ok:true,msg:'Mit Supabase abgeglichen ('+new Date().toLocaleTimeString('de-DE')+')'};
+  renderSupabaseStatus();
+}
+async function syncNow(){
+  if(!unlocked){toast('⚠️ Gesperrt – bitte Passwort eingeben');return;}
+  if(!supabaseConfigured()){toast('⚠️ Supabase-Zugang fehlt – zuerst oben speichern');return;}
+  toast('🔄 Synchronisiere …');
+  var r=await supabaseFetchRow(syncKeyId);
+  if(!r.ok){
+    lastSync={at:Date.now(),ok:false,msg:'Fehler beim Abruf ('+r.error+')'};
+    renderSupabaseStatus();
+    toast('⚠️ Synchronisation fehlgeschlagen');
+    return;
+  }
+  if(!r.row){pushVault();toast('☁️ Lokaler Bestand nach Supabase hochgeladen');return;}
+  var rb;
+  try{rb=JSON.parse(r.row.payload);}catch(e){toast('⚠️ Ungültiger Supabase-Bestand');return;}
+  var remoteTs=rb&&rb.v===1?Number(rb.savedAt||0):0;
+  var localTs=vault?Number(vault.savedAt||0):0;
+  if(rb&&rb.v===1&&remoteTs>localTs){
+    var plain=await openPayload(syncPassword,rb);
+    if(plain===null){toast('⚠️ Supabase-Bestand nicht entschlüsselbar');return;}
+    applyPlain(plain);
+    vault=rb;
+    persist();
+    lastSync={at:Date.now(),ok:true,msg:'Neuerer Bestand aus Supabase übernommen'};
+    toast('☁️ Neuerer Bestand aus Supabase übernommen');
+  }else if(localTs>remoteTs){
+    pushVault();
+    toast('☁️ Neuerer lokaler Bestand hochgeladen');
+  }else{
+    toast('ℹ️ Beide Bestände sind aktuell');
+  }
+  renderAll();
+  renderSupabaseStatus();
+}
+
+function saveSupabaseConfig(){
+  var u=$('#supabase-url').value.trim().replace(/\/+$/,'');
+  var a=$('#supabase-anon').value.trim();
+  if(!u||!a){toast('⚠️ Projekt-URL und Key eingeben');return;}
+  if(u.indexOf('http')!==0)u='https://'+u;
+  supabaseUrl=u;supabaseAnon=a;
+  var isDefault=defaultCloudReady()&&u===defaultCloudUrl()&&a===defaultCloudAnon();
+  setCloudMode(isDefault?'default':'custom');
+  try{localStorage.setItem(CFG_URL_KEY,u);localStorage.setItem(CFG_ANON_KEY,a);}catch(e){}
+  renderTeamBox();
+  renderSupabaseStatus();
+  if($('#gate-custom-url'))$('#gate-custom-url').value=u;
+  if($('#gate-custom-anon'))$('#gate-custom-anon').value=a;
+  showUnlockOverlay(true);
+  gateSetMode(isDefault?'team':'custom');
+  toast('💾 Zugang gespeichert – jetzt Passwort eingeben');
+}
+function fillSupabaseForm(){
+  var u=$('#supabase-url');if(u)u.value=supabaseUrl;
+  var a=$('#supabase-anon');if(a)a.value=supabaseAnon;
+}
+function renderSupabaseStatus(){
+  var el=$('#supabase-status');if(!el)return;
+  if(!supabaseConfigured()){
+    el.innerHTML='Status: <b>nur lokal verschlüsselt</b> – Supabase noch nicht konfiguriert.<br><span style="font-size:12px">Daten werden auf diesem Gerät AES-256-GCM-verschlüsselt gespeichert, aber nicht hochgeladen.</span>';
+  }else{
+    var mode=cloudMode==='default'?'Standard-Verbindung (Team)':'eigene Verbindung';
+    el.innerHTML='Status: <b class="key-ok">verbunden</b> · '+esc(mode)+(unlocked&&syncKeyId?' · Key-ID: <code>'+esc(syncKeyId.slice(0,10))+'…</code>':'')+'<br><span style="font-size:12px">'+esc(lastSync.msg)+(lastSync.ok===true?' ✓':(lastSync.ok===false?' ⚠️':''))+'</span>';
+  }
+}
+function renderSessionStatus(){
+  var el=$('#session-status');if(!el)return;
+  if(!unlocked){el.textContent='Gesperrt – Passwort eingeben.';return;}
+  var remembered=!!localStorage.getItem(SYNC_PW_LS);
+  el.innerHTML='Synchronisation aktiv · Key-ID: <code>'+esc(syncKeyId.slice(0,12))+'…</code>'+(remembered?' · <b class="key-ok">auf diesem Gerät gemerkt</b>':' · <b class="key-warn">nur im Speicher (nicht gemerkt)</b>');
+}
+function switchSession(){
+  if(!confirm('Synchronisation auf diesem Gerät sperren? Die Daten bleiben verschlüsselt erhalten – mit dem richtigen Passwort jederzeit wiederherstellbar.'))return;
+  syncPassword=null;syncKeyId='';unlocked=false;vault=null;
+  try{localStorage.removeItem(SYNC_PW_LS);}catch(e){}
+  state={players:[],matches:[],events:[],activeEventId:''};
+  selection=[];scores={a:0,b:0};filterEventId='all';
+  detailPoints=[];detailType=null;detailPlayerId=null;detailMatchId=null;detailTeam='a';
+  showUnlockOverlay(true);
+  gateSetMode(supabaseConfigured()?(cloudMode==='default'?'team':'custom'):(defaultCloudReady()?'team':'custom'));
+  renderAll();renderSupabaseStatus();renderSessionStatus();renderTeamBox();
+}
+async function deleteRemoteNow(){
+  if(!unlocked||!supabaseConfigured()){toast('⚠️ Keine konfigurierte Supabase-Verbindung');return;}
+  if(!confirm('Verschlüsselten Bestand in Supabase wirklich löschen? Auf anderen Geräten, die nicht lokal gespiegelt sind, geht der Zugriff verloren.'))return;
+  var res=await supabaseDeleteRow(syncKeyId);
+  if(res.ok){lastSync={at:Date.now(),ok:null,msg:'Supabase-Bestand gelöscht'};toast('🗑️ Supabase-Bestand gelöscht');}
+  else{toast('⚠️ Löschen fehlgeschlagen ('+res.error+')');}
+  renderSupabaseStatus();
+}
+
+/* ---------- 🔒 Standard-Verbindung (Team): Passwortprüfung & Aktivierung ---------- */
+function b64uToText(s){return dec.decode(unb64u(s));}
+async function pbkdf2B64u(pw,saltB64,iters,lenBits){
+  var bits=await pbkdf2Bits(pw,unb64u(saltB64),iters,lenBits);
+  return b64u(bits);
+}
+function constEq(a,b){
+  if(typeof a!=='string'||typeof b!=='string'||a.length!==b.length||!a.length)return false;
+  var d=0;
+  for(var i=0;i<a.length;i++)d|=(a.charCodeAt(i)^b.charCodeAt(i));
+  return d===0;
+}
+function defaultCloudReady(){return !!(DEFAULT_CLOUD&&DEFAULT_CLOUD.u&&DEFAULT_CLOUD.k&&DEFAULT_CLOUD.p);}
+async function verifyTeamPassword(pw){
+  if(!defaultCloudReady())return false;
+  var parts=String(DEFAULT_CLOUD.p).split('$');
+  if(parts.length!==4||parts[0]!=='pbkdf2')return false;
+  var iters=Number(parts[1]);
+  if(!isFinite(iters)||iters<1)return false;
+  var calc=await pbkdf2B64u(pw,parts[2],iters,256);
+  return constEq(calc,parts[3]);
+}
+function defaultCloudUrl(){try{return b64uToText(DEFAULT_CLOUD.u);}catch(e){return '';}}
+function defaultCloudAnon(){try{return b64uToText(DEFAULT_CLOUD.k);}catch(e){return '';}}
+function setCloudMode(mode){cloudMode=mode;try{localStorage.setItem(CLOUD_MODE_LS,mode||'');}catch(e){}}
+
+function renderTeamBox(){
+  var badge=$('#team-badge');
+  if(badge){
+    var ok=defaultCloudReady();
+    badge.textContent=ok?'Standard hinterlegt':'nur eigene Verbindung';
+    badge.className='team-badge'+(ok?'':' na');
+  }
+}
+async function activateDefaultCloud(pw){
+  if(!defaultCloudReady()){unlockError('In dieser App ist kein Standard-Zugang hinterlegt – nutze „Eigene Verbindung".');return;}
+  if(!pw){pw=($('#gate-team-password')&&$('#gate-team-password').value||'').trim();}
+  if(!pw){unlockError('Bitte das Team-Passwort eingeben.');return;}
+  var btn=$('#gate-team-btn');
+  if(btn){btn.disabled=true;btn.textContent='🔎 Prüfe …';}
+  var ok=false;
+  try{ok=await verifyTeamPassword(pw);}catch(e){ok=false;}
+  if(btn){btn.disabled=false;btn.textContent='🔓 Entsperren';}
+  if(!ok){unlockError('Passwort falsch.');var inp=$('#gate-team-password');if(inp)inp.select();return;}
+  supabaseUrl=defaultCloudUrl();
+  supabaseAnon=defaultCloudAnon();
+  try{
+    localStorage.setItem(CFG_URL_KEY,supabaseUrl);
+    localStorage.setItem(CFG_ANON_KEY,supabaseAnon);
+  }catch(e){}
+  setCloudMode('default');
+  var el=$('#gate-team-password');if(el)el.value='';
+  fillSupabaseForm();
+  renderTeamBox();
+  renderSupabaseStatus();
+  if(await tryUnlock(pw,{create:true}))toast('🔓 Team-Verbindung entsperrt');
+}
+
 function fmtElo(v){return Math.round(v).toLocaleString('de-DE');}
 
 var newGender=null;
@@ -1445,6 +2020,18 @@ for(var t=0;t<tabs.length;t++){
   tabs[t].addEventListener('click',function(){switchTab(this.dataset.screen);});
 }
 
+/* ---------- 🔐 Sperr-/Einrichtungs-Dialog & Supabase (verschlüsselte Synchronisation) ---------- */
+$('#gate-tab-team').addEventListener('click',function(){gateSetMode('team');});
+$('#gate-tab-custom').addEventListener('click',function(){gateSetMode('custom');});
+$('#gate-team-btn').addEventListener('click',gateTeamSubmit);
+$('#gate-team-password').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();gateTeamSubmit();}});
+$('#gate-custom-btn').addEventListener('click',gateCustomSubmit);
+$('#gate-custom-password').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();gateCustomSubmit();}});
+$('#supabase-form').addEventListener('submit',function(e){e.preventDefault();saveSupabaseConfig();});
+$('#sync-now-btn').addEventListener('click',syncNow);
+$('#session-switch-btn').addEventListener('click',switchSession);
+$('#session-delete-btn').addEventListener('click',deleteRemoteNow);
+
 /* PWA: Service Worker nur bei http(s)-Hosting registrieren (offline-fähig + installierbar).
    updateViaCache:'none' → sw.js wird immer frisch vom Netz geholt, damit Updates erkannt werden.
    Beim Update wird die Seite einmal neu geladen, damit die neue Version sofort erscheint. */
@@ -1466,10 +2053,9 @@ if('serviceWorker' in navigator&&location.protocol.indexOf('http')===0){
     }catch(e){}
   });
 }
-load();
+load();          // alte localStorage-Daten einmalig in den verschlüsselten Vault übernehmen
 buildPresets();
-renderAll();
-switchTab('players');
+bootFlow();      // 🔐 Passwort abfragen, Daten entschlüsseln & mit Supabase abgleichen
 })();
 </script>
 </body>
